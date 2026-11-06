@@ -19,7 +19,7 @@ static annas_error_t g_err;
 
 static bool init_with(const annas_config_t *cfg, ports_stream_t s, ports_fs_t f, ports_clock_t c, void *ws,
                       size_t cap) {
-    return annas_ctx_init(&g_ctx, cfg, s, f, c, ws, cap);
+    return annas_ctx_init(&g_ctx, cfg, (annas_ports_t){s, f, c}, ws, cap);
 }
 
 static void setup(void) {
@@ -70,7 +70,7 @@ static void t_init_rejects_null(ctest_t *t) {
     ports_stream_t s0 = {NULL, NULL};
     ports_fs_t f0 = {NULL, NULL};
     ports_clock_t c0 = {NULL, NULL};
-    CHECK(t, !annas_ctx_init(NULL, &g_cfg, s, f, c, g_ws, ANNAS_WORKSPACE_MIN));
+    CHECK(t, !annas_ctx_init(NULL, &g_cfg, (annas_ports_t){s, f, c}, g_ws, ANNAS_WORKSPACE_MIN));
     CHECK(t, !init_with(NULL, s, f, c, g_ws, ANNAS_WORKSPACE_MIN));
     CHECK(t, !init_with(&g_cfg, s, f, c, NULL, ANNAS_WORKSPACE_MIN));
     CHECK(t, !init_with(&g_cfg, s0, f, c, g_ws, ANNAS_WORKSPACE_MIN));

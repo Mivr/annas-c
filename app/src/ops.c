@@ -222,7 +222,7 @@ app_op_status_t app_op_run(const app_deps_t *d, const app_op_t *op, app_job_t *j
     if (annas_config_load(d->env, op->download, op->timeout_seconds, &job->cfg, &job->err) != ANNAS_OK) {
         return APP_OP_FAIL;
     }
-    if (!annas_ctx_init(&job->ctx, &job->cfg, d->stream, d->fs, d->clock, d->workspace, d->workspace_cap)) {
+    if (!annas_ctx_init(&job->ctx, &job->cfg, (annas_ports_t){d->stream, d->fs, d->clock}, d->workspace, d->workspace_cap)) {
         return APP_OP_INTERNAL;
     }
     if (op->download) {

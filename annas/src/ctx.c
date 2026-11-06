@@ -21,21 +21,21 @@ static bool fs_ok(ports_fs_t f) {
            f.ops->discard != NULL;
 }
 
-bool annas_ctx_init(annas_ctx_t *ctx, const annas_config_t *cfg, ports_stream_t stream, ports_fs_t fs,
-                    ports_clock_t clock, void *workspace, size_t cap) {
+bool annas_ctx_init(annas_ctx_t *ctx, const annas_config_t *cfg, annas_ports_t ports, void *workspace, size_t cap) {
     if (ctx == NULL || cfg == NULL || workspace == NULL || cap < ANNAS_WORKSPACE_MIN) {
         return false;
     }
-    if (!stream_ok(stream) || !fs_ok(fs) || clock.ops == NULL || clock.ops->now_ms == NULL) {
+    if (!stream_ok(ports.stream) || !fs_ok(ports.fs) || ports.clock.ops == NULL ||
+        ports.clock.ops->now_ms == NULL) {
         return false;
     }
     if (((uintptr_t)workspace & (uintptr_t)15u) != 0u) {
         return false;
     }
     ctx->cfg = cfg;
-    ctx->stream = stream;
-    ctx->fs = fs;
-    ctx->clock = clock;
+    ctx->stream = ports.stream;
+    ctx->fs = ports.fs;
+    ctx->clock = ports.clock;
     ctx->work = workspace;
     ctx->work_cap = cap;
     ctx->deadline_ms = 0;

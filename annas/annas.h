@@ -153,8 +153,15 @@ annas_code_t annas_config_load(ports_env_t env, bool need_download, int64_t time
 
 /* ---- context --------------------------------------------------------------------------------------------------- */
 
-/* Binds `cfg` (kept by pointer: must outlive the context, and its key/dir slices too), the three ports (copied by
- * value) and `workspace[0..cap)` (all scratch memory: parser, IO buffer, API body, JSON arena; it need not be
+/* The three ports an operation needs, grouped so annas_ctx_init stays within 6 parameters. Passed by value. */
+typedef struct {
+    ports_stream_t stream;
+    ports_fs_t fs;
+    ports_clock_t clock;
+} annas_ports_t;
+
+/* Binds `cfg` (kept by pointer: must outlive the context, and its key/dir slices too), the three ports (`ports`,
+ * copied by value; a port whose ops table or any of its functions is NULL makes it fail, as before) and `workspace[0..cap)` (all scratch memory: parser, IO buffer, API body, JSON arena; it need not be
  * zeroed). Returns false (touching nothing that matters) when an argument is NULL, a port table pointer is NULL,
  * `cap < ANNAS_WORKSPACE_MIN`, or the workspace is not aligned to 16 bytes. A context is used by one operation at
  * a time. The ctx is a plain struct the caller allocates; treat its members as private. */
@@ -169,8 +176,7 @@ typedef struct {
     unsigned priv[8];           /* implementation use */
 } annas_ctx_t;
 
-bool annas_ctx_init(annas_ctx_t *ctx, const annas_config_t *cfg, ports_stream_t stream, ports_fs_t fs,
-                    ports_clock_t clock, void *workspace, size_t cap);
+bool annas_ctx_init(annas_ctx_t *ctx, const annas_config_t *cfg, annas_ports_t ports, void *workspace, size_t cap);
 
 /* ---- operations ------------------------------------------------------------------------------------------------ */
 
