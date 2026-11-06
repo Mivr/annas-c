@@ -39,7 +39,7 @@ static http_status_t run(core_str_t msg, int *status, int *minor, core_str_t *re
 }
 
 static void line_ok(ctest_t *t, const char *line, int want, int want_minor, const char *want_reason) {
-    char buf[128];
+    static char buf[128];
     int st, mi;
     core_str_t reason = {NULL, 0};
     snprintf(buf, sizeof buf, "%s\r\nContent-Length: 0\r\n\r\n", line);
@@ -50,7 +50,7 @@ static void line_ok(ctest_t *t, const char *line, int want, int want_minor, cons
 }
 
 static void line_bad(ctest_t *t, const char *line) {
-    char buf[128];
+    static char buf[128];
     int st, mi;
     snprintf(buf, sizeof buf, "%s\r\n\r\n", line);
     CHECK_EQ_I64(t, run(core_str_from_cstr(buf), &st, &mi, NULL), HTTP_E_STATUS_LINE);
@@ -141,7 +141,7 @@ static void t_status_reason(ctest_t *t) {
 
 /* ---- Transfer-Encoding spelling ---- */
 static http_status_t te(const char *v, http_framing_t *fr) {
-    char buf[128];
+    static char buf[128];
     http_event_t ev;
     core_str_t in;
     http_status_t rc;
