@@ -58,7 +58,8 @@ Upstream's CLI form `book-download <md5> <filename-with-ext>` is accepted as an 
 extension, format = extension; no extension = `E_ARG`).
 1. `md5` must be 32 hex characters (case-insensitive, normalised to lower case), else `E_ARG`.
 2. `GET /dyn/api/fast_download.json?md5=<md5>&key=<key>`. The body is JSON (`fixtures/live/`): success is
-   status **200 or 204** with a non-empty `download_url` (and an `account_fast_download_info` object); failures
+   status **200** with a non-empty `download_url` (the API text says "200 or 204", but a 204 carries no
+   body, so it can never deliver a URL and is mapped like any failure) (and an `account_fast_download_info` object); failures
    use other statuses with `download_url: null` and an `error` string. Unknown keys (such as the
    `///download_url` documentation array) are ignored. Map: status 200/204 with a non-empty string
    `download_url` -> step 3; any other status, or `download_url` null/empty, -> `E_API <status>: <error>`
