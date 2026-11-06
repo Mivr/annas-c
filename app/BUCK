@@ -1,0 +1,58 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+COMMON_TEST_DEPS = [":app", ":testkit", "//annas:annas", "//annas:testkit", "//core:core", "//ports:ports"]
+
+c_library(
+    name = "app",
+    srcs = [
+        "src/cli.c",
+        "src/dotenv.c",
+        "src/mcp.c",
+        "src/ops.c",
+    ],
+    headers = ["app.h", "src/internal.h"],
+    deps = [
+        "//annas:annas",
+        "//core:core",
+        "//json:json",
+        "//ports:ports",
+        "//url:url",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Test-only scaffolding (fake-port wiring, output buffers, script helpers); not part of the product.
+c_library(
+    name = "testkit",
+    srcs = ["tests/kit.c"],
+    headers = ["tests/kit.h"],
+    deps = [
+        ":app",
+        "//annas:annas",
+        "//annas:testkit",
+        "//core:core",
+        "//ports:ports",
+        "gate//ctest:ctest",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "parse_test", srcs = ["tests/parse_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "parse_err_test", srcs = ["tests/parse_err_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "dotenv_test", srcs = ["tests/dotenv_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "cli_run_test", srcs = ["tests/cli_run_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "cli_err_test", srcs = ["tests/cli_err_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "mcp_proto_test", srcs = ["tests/mcp_proto_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "mcp_bad_test", srcs = ["tests/mcp_bad_test.c"], deps = COMMON_TEST_DEPS + ["//json:json"])
+
+c_test(name = "mcp_args_test", srcs = ["tests/mcp_args_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "mcp_call_test", srcs = ["tests/mcp_call_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "leak_test", srcs = ["tests/leak_test.c"], deps = COMMON_TEST_DEPS)
