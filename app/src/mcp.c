@@ -31,6 +31,7 @@ typedef struct {
     core_buf_t rb;
     unsigned char *mem;
     size_t cap;
+    size_t left; /* arena memory the request DOM left */
 } mctx_t;
 
 static core_str_t cs(const char *c) { return core_str_from_cstr(c); }
@@ -208,27 +209,40 @@ static bool call_check(call_t *c, const json_value_t *params) {
     return c->have_hash || call_fail(c, "Invalid params: hash is required");
 }
 
-/* Runs the validated operation. The job and the text live at the end of the reply area; the reply is written
- * below them, only after the text is complete. */
+/* The -32603 reply that replaces whatever was being built (id null). */
+static void nomem(mctx_t *m) {
+    (void)core_buf_init(&m->rb, (char *)m->mem, m->cap);
+    m->id = NULL;
+    err_plain(m, "-32603", MSG_INTERNAL_NOMEM);
+}
+
+/* Length of the decoded id (a string), of the text of a number, 4 for null. */
+static size_t id_len(const json_value_t *id) {
+    core_str_t v = {NULL, 0};
+    if (json_get_str(id, &v) || json_number_text(id, &v)) {
+        return v.len;
+    }
+    return 4u;
+}
+
+/* Runs the validated operation. The job and the outcome text live in the scratch; the reply is written to the
+ * arena only once the text is complete. */
 static void call_run(mctx_t *m, const app_op_t *op) {
-    size_t need = sizeof(app_job_t) + APP_TEXT_CAP + 32u;
-    size_t off;
-    app_job_t *job;
-    char *tm;
-    core_buf_t tb = {NULL, 0, 0, false};
+    app_scratch_t *sc = app_scratch(&m->s->deps);
+    core_buf_t tb;
     app_op_status_t st;
-    if (m->cap < need + 512u) {
-        err_plain(m, "-32603", MSG_INTERNAL_NOMEM);
+    if (m->left < APP_MCP_CALL_MEM + 6u * id_len(m->id)) {
+        nomem(m);
         return;
     }
-    off = (m->cap - need) & ~(size_t)15u;
-    job = (app_job_t *)(void *)(m->mem + off);
-    tm = (char *)m->mem + off + APP_ALIGN16(sizeof *job);
-    st = app_op_run(&m->s->deps, op, job);
-    (void)core_buf_init(&tb, tm, APP_TEXT_CAP);
-    app_op_text(op, job, st, &tb);
-    app_utf8_clean(tm, core_buf_len(&tb));
-    (void)core_buf_init(&m->rb, (char *)m->mem, off);
+    st = app_op_run(&m->s->deps, op, &sc->u.w.job);
+    (void)core_buf_init(&tb, sc->u.w.text, sizeof sc->u.w.text);
+    app_op_text(op, &sc->u.w.job, st, &tb);
+    if (core_buf_overflow(&tb)) {
+        nomem(m);
+        return;
+    }
+    app_utf8_clean(sc->u.w.text, core_buf_len(&tb));
     head(m);
     put_cs(&m->rb, ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"");
     app_put_escaped(&m->rb, core_buf_str(&tb));
@@ -303,25 +317,36 @@ static bool blank_line(core_str_t line) {
     return true;
 }
 
-/* All the arena that is left becomes the reply buffer. */
-static bool reply_open(mctx_t *m) {
+/* All the arena that is left becomes the reply buffer (cap 0 when there is nothing left). */
+static void reply_open(mctx_t *m) {
     core_arena_t *a = &m->s->arena;
-    size_t rem = core_arena_capacity(a) - core_arena_used(a);
-    if (rem < 32u) {
-        return false;
-    }
-    m->cap = rem - 16u;
-    m->mem = core_arena_alloc(a, m->cap, 16);
-    return core_buf_init(&m->rb, (char *)m->mem, m->cap);
+    m->left = core_arena_capacity(a) - core_arena_used(a);
+    m->cap = m->left;
+    m->mem = m->cap > 0 ? core_arena_alloc(a, m->cap, 1) : NULL;
+    m->cap = m->mem != NULL ? m->cap : 0;
+    (void)core_buf_init(&m->rb, (char *)m->mem, m->cap);
 }
 
+/* Scrubs the reply and appends it in one put; a reply that is too long or does not fit the arena becomes the
+ * -32603 reply, and when even that does not fit nothing is appended. */
 static app_mcp_result_t deliver(mctx_t *m, core_buf_t *out) {
-    app_emit(out, &m->rb, app_key(&m->s->deps));
+    const app_deps_t *d = &m->s->deps;
+    core_str_t fin = {NULL, 0};
+    bool ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
+    if (!ok) {
+        nomem(m);
+        ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
+    }
+    if (!ok) {
+        core_buf_put(out, NULL, 1);
+        return APP_MCP_E_OVERFLOW;
+    }
+    core_buf_put_str(out, fin);
     return core_buf_overflow(out) ? APP_MCP_E_OVERFLOW : APP_MCP_REPLY;
 }
 
 bool app_mcp_init(app_mcp_t *s, const app_deps_t *deps, void *parse_mem, size_t parse_cap) {
-    if (s == NULL || deps == NULL || parse_mem == NULL || parse_cap < APP_MCP_ARENA_MIN) {
+    if (s == NULL || deps == NULL || parse_mem == NULL || parse_cap < APP_MCP_ARENA_MIN || !app_scratch_ok(deps)) {
         return false;
     }
     s->deps = *deps;
@@ -342,7 +367,7 @@ static void compose(mctx_t *m, size_t line_len, json_err_t je, const json_value_
 }
 
 app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out) {
-    mctx_t m = {s, NULL, {NULL, 0, 0, false}, NULL, 0};
+    mctx_t m = {0};
     json_limits_t lim = json_limits_default();
     const json_value_t *root = NULL;
     json_err_t je = JSON_OK;
@@ -350,6 +375,7 @@ app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out) 
     if (s == NULL || out == NULL || (line.ptr == NULL && line.len > 0)) {
         return APP_MCP_E_ARG;
     }
+    m.s = s;
     if (!core_arena_reset_to(&s->arena, 0)) {
         return APP_MCP_E_ARG;
     }
@@ -360,10 +386,7 @@ app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out) 
         lim.max_input = APP_MCP_LINE_MAX;
         je = json_parse(&s->arena, line, &lim, &root, NULL);
     }
-    if (!reply_open(&m)) {
-        core_buf_put(out, NULL, 1);
-        return APP_MCP_E_OVERFLOW;
-    }
+    reply_open(&m);
     compose(&m, line.len, je, root, &replied);
     return replied ? deliver(&m, out) : APP_MCP_NO_REPLY;
 }

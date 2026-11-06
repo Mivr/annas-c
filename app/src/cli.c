@@ -277,37 +277,37 @@ static app_op_t op_of(const app_cmd_t *cmd) {
     return op;
 }
 
-/* Success text goes to out, built in the free space of errout; failure text goes to errout, built behind the job
- * in the free space of out. */
-static int cli_finish(const app_op_t *op, const app_deps_t *deps, app_op_status_t st, const app_job_t *job,
-                      app_span_t behind_job, core_buf_t *out, core_buf_t *errout) {
-    bool ok = st == APP_OP_OK;
-    app_span_t sp = ok ? app_span_of(errout) : behind_job;
-    char *mem = app_span_take(&sp, APP_TEXT_CAP);
-    core_buf_t text = {NULL, 0, 0, false};
-    if (mem == NULL) {
-        return cli_internal(errout);
+static bool env_usable(const app_deps_t *d) { return d->env.ops != NULL && d->env.ops->get != NULL; }
+
+/* Builds the outcome text in the scratch, finalises it and appends it with one put: success to out, else errout. */
+static int cli_finish(const app_op_t *op, const app_deps_t *deps, app_op_status_t st, core_buf_t *out,
+                      core_buf_t *errout) {
+    app_scratch_t *sc = app_scratch(deps);
+    core_buf_t text;
+    core_buf_t *target = st == APP_OP_OK ? out : errout;
+    int rc = 0;
+    if (st == APP_OP_FAIL) {
+        rc = annas_exit_code(sc->u.w.job.err.code);
+    } else if (st == APP_OP_INTERNAL) {
+        rc = 1;
     }
-    (void)core_buf_init(&text, mem, APP_TEXT_CAP);
-    app_op_text(op, job, st, &text);
+    (void)core_buf_init(&text, sc->u.w.text, sizeof sc->u.w.text);
+    app_op_text(op, &sc->u.w.job, st, &text);
     core_buf_put_char(&text, '\n');
-    app_emit(ok ? out : errout, &text, app_key(deps));
-    return ok ? 0 : annas_exit_code(job->err.code);
+    if (core_buf_overflow(&text)) {
+        core_buf_put(target, NULL, 1);
+    } else {
+        app_emit(deps, target, core_buf_str(&text), true);
+    }
+    return rc;
 }
 
 static int cli_op(const app_cmd_t *cmd, const app_deps_t *deps, core_buf_t *out, core_buf_t *errout) {
     app_op_t op = op_of(cmd);
-    app_span_t sp = app_span_of(out);
-    app_job_t *job = app_span_take(&sp, sizeof *job);
-    app_op_status_t st;
-    if (deps == NULL || job == NULL) {
+    if (deps == NULL || !env_usable(deps) || !app_scratch_ok(deps)) {
         return cli_internal(errout);
     }
-    st = app_op_run(deps, &op, job);
-    if (st == APP_OP_INTERNAL) {
-        return cli_internal(errout);
-    }
-    return cli_finish(&op, deps, st, job, sp, out, errout);
+    return cli_finish(&op, deps, app_op_run(deps, &op, &app_scratch(deps)->u.w.job), out, errout);
 }
 
 int app_cli_run(const app_cmd_t *cmd, const app_deps_t *deps, core_buf_t *out, core_buf_t *errout) {

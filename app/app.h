@@ -11,10 +11,30 @@
  *
  * ---- Common rules ---------------------------------------------------------------------------------------------
  * Key secrecy.  The member key is ANNAS_SECRET_KEY as read from deps->env. Every byte this module outputs
- * (stdout text, stderr text, an MCP response line) is finalised so that every non-overlapping occurrence (left to
- * right) of the key, then of url_pct_encode(key) if that differs, is replaced by "REDACTED". That includes echoes
- * of client-controlled text: a file name made from the key, an MCP id, a method or tool name. (The file written
- * to the fs port keeps its real name; only output is scrubbed.) An empty or unset key redacts nothing.
+ * (stdout text, stderr text, an MCP response line) is finalised by TWO SEQUENTIAL PASSES over the complete text:
+ *   pass 1: every non-overlapping occurrence (scanning left to right) of the key is replaced by "REDACTED";
+ *   pass 2: only if url_pct_encode(key) differs from the key, every non-overlapping occurrence (left to right) of
+ *           url_pct_encode(key) in the OUTPUT OF PASS 1 is replaced by "REDACTED".
+ * (Reason: it is the rule annas already applies to its messages, annas.h "finalised by the same three steps", so
+ * the product has one scrubbing rule. Consequences, pinned by tests: pass 2 scans the output of pass 1, so the bytes of a replaced raw occurrence are gone for it; an
+ * occurrence of the encoded key that overlaps a raw occurrence is destroyed by pass 1 and survives only as the
+ * bytes pass 1 left of it; and a "REDACTED" written by pass 1 may combine with its neighbours into the encoded
+ * key, which pass 2 then replaces.)
+ * That includes echoes of client-controlled text: a file name made from the key, an MCP id, a method or tool
+ * name. (The file written to the fs port keeps its real name; only output is scrubbed.) An empty or unset key
+ * redacts nothing. The scrubbing is applied to the whole text BEFORE it is appended, see "Memory and output".
+ * Memory and output.  This module owns no memory. It uses ONLY: deps->scratch (below), the MCP parse arena
+ * (the DOM of the request, then the reply under construction), and the `core_buf_t` objects it appends to. It
+ * reads and writes a `core_buf_t` only through the functions of core/buf.h: the unused capacity behind the content
+ * (after its NUL) is never read, written or borrowed, so every result is independent of how large the caller's
+ * `out` / `errout` happen to be (an `out` of exactly content length + 1 bytes is enough).
+ * Output is ALL-OR-NOTHING. Each text (the whole stdout text, the whole stderr text, the whole MCP reply) is
+ * finalised (scrubbed) completely in memory first and then appended with ONE core_buf_put: when the finalised
+ * text does not fit, that buffer's content is unchanged (byte for byte, including what was there before the call)
+ * and its overflow flag is set; the exit code and the port interactions are not changed by it. A buffer that is
+ * already in its overflow state stays unchanged. The scrubbing itself is always applied to the complete text; it
+ * can lengthen it (a key shorter than "REDACTED"), and the fit is judged on the final bytes.
+ * Keys longer than ANNAS_KEY_MAX bytes are not accepted by annas_config_load; for such a key only pass 1 is applied.
  * Operations.  Both the CLI and the MCP tools call annas (annas_config_load with the env of the deps, then
  * annas_ctx_init over deps->workspace, then annas_download / annas_fast_download_url). Error texts, exit codes
  * and every port interaction are exactly annas's; this module adds only the framing described below.
@@ -38,9 +58,15 @@
 /* ---- dependencies ---------------------------------------------------------------------------------------------- */
 
 /* `env` is the LAYERED environment (see app_env_layer_*); `workspace` is annas's scratch memory:
- * >= ANNAS_WORKSPACE_MIN bytes, 16-byte aligned. All fields must be valid; the struct is copied by app_mcp_init
- * and used by pointer in app_cli_run (it must outlive the call). A workspace or port that annas_ctx_init refuses
- * makes the operation fail with the internal error described at app_cli_run / app_mcp_handle. */
+ * >= ANNAS_WORKSPACE_MIN bytes, 16-byte aligned. `scratch` is THIS module's own scratch memory (the job's config,
+ * context, error and result structs, the outcome text and the scrubbed text): >= APP_SCRATCH_MIN bytes,
+ * 16-byte aligned, and it must not overlap `workspace`, the output buffers or the MCP parse arena. Its contents on
+ * return are unspecified. All fields must be valid; the struct is copied by app_mcp_init and used by pointer in
+ * app_cli_run (it must outlive the call). A workspace or port that annas_ctx_init refuses makes the operation fail
+ * with the internal error described at app_cli_run / app_mcp_handle. A scratch region that is NULL, shorter than
+ * APP_SCRATCH_MIN or not 16-byte aligned is refused by app_cli_run (internal error) and by app_mcp_init (false). */
+#define APP_SCRATCH_MIN ((size_t)131072)  /* the job (about 9 KB), one outcome text (8 KB) and one finalised text (64 KB) */
+
 typedef struct {
     ports_stream_t stream;
     ports_fs_t fs;
@@ -48,6 +74,8 @@ typedef struct {
     ports_env_t env;
     void *workspace;
     size_t workspace_cap;
+    void *scratch;
+    size_t scratch_cap;
 } app_deps_t;
 
 /* ---- command line ---------------------------------------------------------------------------------------------- */
@@ -173,10 +201,14 @@ ports_env_t app_env_layer_port(app_env_layer_t *l);
  * On success stderr is empty. No port is touched before annas has validated config and request.
  * Internal errors (return 1, stdout empty, stderr exactly "annas-c: internal error: invalid dependencies\n"):
  * out or errout NULL (then nothing is written at all); for DOWNLOAD / DOWNLOAD_URL: cmd or deps NULL, a port table
- * missing, or a workspace annas_ctx_init refuses; APP_CMD_MCP, APP_CMD_NONE or an unknown kind. The order of work
- * for the download kinds is: config (annas_config_load, its errors are reported normally), then
- * annas_ctx_init (failure = internal error), then the operation. HELP and VERSION need only cmd, out and errout
- * (deps may be NULL). The help text, byte for byte (HELP_TEXT):
+ * missing (stream, fs or clock ops NULL, or env.ops NULL or env.ops->get NULL), a scratch region that is NULL,
+ * shorter than APP_SCRATCH_MIN or not 16-byte aligned, or a workspace annas_ctx_init refuses; APP_CMD_MCP,
+ * APP_CMD_NONE or an unknown kind. The order of work for the download kinds is: the env port and the scratch
+ * region (a defect of either is the internal error, even when the configuration is also wrong: without them no
+ * error text can be built), then config (annas_config_load, its errors are reported normally, also when the
+ * workspace is too small), then annas_ctx_init (failure = internal error), then the operation. HELP and VERSION
+ * need only cmd, out and errout (deps may be NULL). Every text is appended as described at "Memory and output":
+ * stdout text and stderr text each in ONE append, scrubbed first. The help text, byte for byte (HELP_TEXT):
  *
  *   annas-c 0.1: download files from Anna's Archive with a member account key\n
  *   \n
@@ -202,23 +234,38 @@ int app_cli_run(const app_cmd_t *cmd, const app_deps_t *deps, core_buf_t *out, c
 
 #define APP_MCP_LINE_MAX ((size_t)1048576)  /* longest accepted line, in bytes, without the newline */
 #define APP_MCP_ARENA_MIN ((size_t)65536)   /* smallest parse memory accepted by app_mcp_init */
+#define APP_MCP_CALL_MEM ((size_t)16384)    /* see app_mcp_init: arena memory a tools/call needs after the DOM */
+#define APP_MCP_REPLY_MAX ((size_t)65536)   /* longest scrubbed reply */
 
 typedef struct {
     app_deps_t deps;
-    core_arena_t arena;   /* implementation use: the JSON DOM of the line being handled */
+    core_arena_t arena;   /* implementation use: the DOM of the line being handled, then its reply */
 } app_mcp_t;
 
-/* `parse_mem[0..parse_cap)` is the memory of the JSON DOM of ONE request (rewound for every line); it needs
- * about the decoded size of the request's strings plus a small constant per value, so APP_MCP_LINE_MAX plus some
- * slack always suffices. Returns false when an argument is NULL or parse_cap < APP_MCP_ARENA_MIN. The server has
- * no state between lines: tools/call works before or without `initialize`. */
+/* `parse_mem[0..parse_cap)` is the memory of ONE request (rewound for every line): first its JSON DOM, which needs
+ * about the decoded size of the request's strings plus a small constant per value (so APP_MCP_LINE_MAX plus some
+ * slack always suffices for it), then, in ALL of what the DOM left (capacity - core_arena_used after the parse),
+ * the reply under construction before its scrubbing. Memory shortfalls, in the order they are met:
+ *   - the DOM does not fit: the -32603 reply described at rule 3 (this is how it always was);
+ *   - a tools/call arrives and the DOM left less than APP_MCP_CALL_MEM bytes plus 6 times the decoded length of the
+ *     id (a number: the length of its text; null: 4): NO tool runs and no port is touched; the reply is -32603
+ *     "Internal error: request does not fit in memory", id null. With that much left, the reply of a started call
+ *     fits (for keys of 8 bytes or more);
+ *   - the unscrubbed reply does not fit what the DOM left, or the scrubbed reply is longer than APP_MCP_REPLY_MAX
+ *     bytes (scrubbing happens in deps->scratch): the same -32603 reply replaces it (a tool that has run stays run);
+ *   - that -32603 reply itself (107 bytes) does not fit what the DOM left: nothing is appended and the result is
+ *     APP_MCP_E_OVERFLOW with `out` in its overflow state, exactly as for an `out` that is too small.
+ * Returns false when an argument is NULL, parse_cap < APP_MCP_ARENA_MIN, or deps->scratch is NULL, shorter than
+ * APP_SCRATCH_MIN or not 16-byte aligned. The ports and the workspace are not validated here (see tools/call). The
+ * server has no state between lines: tools/call works before or without `initialize`. */
 bool app_mcp_init(app_mcp_t *s, const app_deps_t *deps, void *parse_mem, size_t parse_cap);
 
 typedef enum {
     APP_MCP_NO_REPLY = 0,  /* nothing appended to `out`: a notification, or a blank line */
     APP_MCP_REPLY,         /* exactly one JSON text appended to `out`, without a trailing newline */
     APP_MCP_E_ARG,         /* NULL argument (or line.ptr NULL with len > 0); nothing appended */
-    APP_MCP_E_OVERFLOW     /* `out` too small for the reply; `out` is in its overflow state (core_buf rules) */
+    APP_MCP_E_OVERFLOW     /* `out` too small for the reply: its content is unchanged (all-or-nothing, see
+                              "Memory and output"), and it is in its overflow state (core_buf rules) */
 } app_mcp_result_t;
 
 /* Handles ONE message: `line` is one line WITHOUT its newline. Never crashes, never blocks, never reads outside
@@ -289,8 +336,17 @@ typedef enum {
  *                   Result: {"content":[{"type":"text","text":T}],"isError":false}  with T = annas_format_downloaded
  *                   (book_download) or annas_format_download_url (fast_download_url) and no trailing newline; on
  *                   an operation error {"content":[{"type":"text","text":E}],"isError":true} with E =
- *                   annas_error_line(). A ports/ workspace annas refuses: isError true with E =
- *                   "annas-c: internal error: invalid dependencies".
+ *                   annas_error_line(). A ports/ workspace annas refuses, or an env port that is missing
+ *                   (env.ops NULL or env.ops->get NULL): isError true with E =
+ *                   "annas-c: internal error: invalid dependencies" (no port is touched; with no usable env there
+ *                   is no key, so nothing is scrubbed). The other methods do not need the ports.
+ *                   UTF-8: T and E, and the <name> echoed in "unknown tool" / "unknown argument" (after its cut to
+ *                   100 bytes), are made valid UTF-8 BEFORE the JSON escaping: scanning left to right, at each
+ *                   byte, if a well-formed UTF-8 sequence (RFC 3629: no overlong forms, no surrogates U+D800..
+ *                   U+DFFF, nothing above U+10FFFF) starts there it is kept whole, otherwise that ONE byte becomes
+ *                   '?'. So a sequence cut in the middle by a length limit, a stray continuation byte, 0xC0, 0xC1,
+ *                   0xF5..0xFF, and every byte of an overlong or surrogate encoding each give one '?'. (The CLI
+ *                   writes such bytes verbatim: it is bytes, not JSON.)
  *     any other method: -32601 "Method not found".
  *  The reply is finalised by the key scrubbing described at the top of this file. */
 app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out);
