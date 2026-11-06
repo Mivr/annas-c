@@ -1,0 +1,17 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "posix_clock",
+    srcs = [
+        "src/clock.c",
+        "src/sys.c",
+    ],
+    headers = ["posix_clock.h"],
+    deps = [
+        "//core:core",
+        "//ports:ports",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "clock_test", srcs = ["tests/clock_test.c"], deps = [":posix_clock", "//core:core", "//ports:ports"])
