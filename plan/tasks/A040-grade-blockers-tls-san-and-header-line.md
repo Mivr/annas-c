@@ -12,9 +12,10 @@ Source: the orchestrator's audit grade of main `81012ea` (gate `02050f8`, 2026-1
    They pass in release. Make every case finish well under the limit in san (target: < 3 s each in san on a loaded
    machine), **without dropping coverage**. For example, shard "every early byte" into several test cases that
    together cover exactly the same byte positions, or reuse one handshake transcript instead of redoing the
-   handshake per position. Keep each original test id, or replace it with shards named
-   `<old>_part<N>`, and list the old-to-new id mapping in your report. Each shard must assert as much as the
-   original did.
+   handshake per position. **Keep all three original test ids**: the gate's
+   expected-tests list is add-only, and removing an id needs an owner-signed approval. If you shard, the
+   original id becomes one shard, and the others are new ids named `<old>_part<N>`. List the mapping in your
+   report. Together the shards assert at least as much as the original did.
 2. **`structure`: `annas/annas.h` has a 201-character line**, over the L3 limit of 160. Reflow that comment, or
    wrap that declaration, so no line exceeds 160. Change only whitespace and line breaks; the text and the API
    stay byte-identical apart from those. Check the whole header for other lines over 160.
