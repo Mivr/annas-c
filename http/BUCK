@@ -1,0 +1,48 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "http",
+    srcs = [
+        "src/url.c",
+        "src/request.c",
+        "src/parse.c",
+        "src/header.c",
+        "src/chunk.c",
+        "src/redirect.c",
+        "src/challenge.c",
+    ],
+    headers = [
+        "http.h",
+        "src/internal.h",
+    ],
+    deps = ["//core:core"],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "url_test", srcs = ["tests/url_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "request_test", srcs = ["tests/request_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_basic_test", srcs = ["tests/parse_basic_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_framing_test", srcs = ["tests/parse_framing_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_reject_syntax_test", srcs = ["tests/parse_reject_syntax_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_reject_framing_test", srcs = ["tests/parse_reject_framing_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_reject_chunk_test", srcs = ["tests/parse_reject_chunk_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_limits_test", srcs = ["tests/parse_limits_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_count_test", srcs = ["tests/parse_count_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_stream_test", srcs = ["tests/parse_stream_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "parse_split_test", srcs = ["tests/parse_split_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "redirect_test", srcs = ["tests/redirect_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "challenge_test", srcs = ["tests/challenge_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "live_test", srcs = ["tests/live_test.c"], deps = [":http", "//core:core"])
