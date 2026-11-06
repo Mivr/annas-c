@@ -1,0 +1,33 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "json",
+    srcs = [
+        "src/parse.c",
+        "src/value.c",
+        "src/num.c",
+        "src/utf8.c",
+        "src/write.c",
+        "src/writer.c",
+    ],
+    headers = [
+        "json.h",
+        "src/internal.h",
+    ],
+    deps = ["//core:core"],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "value_test", srcs = ["tests/value_test.c"], deps = [":json", "//core:core"])
+
+c_test(name = "string_test", srcs = ["tests/string_test.c"], deps = [":json", "//core:core"])
+
+c_test(name = "utf8_test", srcs = ["tests/utf8_test.c"], deps = [":json", "//core:core"])
+
+c_test(name = "number_test", srcs = ["tests/number_test.c"], deps = [":json", "//core:core"])
+c_test(name = "syntax_test", srcs = ["tests/syntax_test.c"], deps = [":json", "//core:core"])
+c_test(name = "limits_test", srcs = ["tests/limits_test.c"], deps = [":json", "//core:core"])
+c_test(name = "writer_test", srcs = ["tests/writer_test.c"], deps = [":json", "//core:core"])
+c_test(name = "corpus_test", srcs = ["tests/corpus_test.c"], deps = [":json", "//core:core"])
+c_test(name = "roundtrip_test", srcs = ["tests/roundtrip_test.c"], deps = [":json", "//core:core"])
+c_test(name = "arena_test", srcs = ["tests/arena_test.c"], deps = [":json", "//core:core"])
