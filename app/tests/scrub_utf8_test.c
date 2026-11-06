@@ -267,6 +267,76 @@ static void t_mcp_cut_names_are_made_valid(ctest_t *t) {
     unknown_name_reply(t, a, call(a, nm, "{}"), "tool", shw);
 }
 
+/* ---- long keys (app.h: "Keys longer than ANNAS_KEY_MAX bytes are not accepted by annas_config_load; for such a key
+ * only pass 1 is applied."). ANNAS_KEY_MAX is 256 (annas.h): a key of <= 256 bytes gets both passes, one of 257 bytes
+ * or more gets pass 1 only. The key has one '+' (encoded "%2B"), so its encoded form differs from the key. */
+static char lk_key[512];
+static char lk_enc[1024];
+static char lk_id[2048];
+static char lk_want[2048];
+static char lk_line[2560];
+static char lk_exp[3072];
+
+static void long_key_make(size_t n) {
+    size_t i;
+    size_t e = 0;
+    for (i = 0; i < n; i++) {
+        lk_key[i] = (i == 10) ? '+' : 'k';
+    }
+    lk_key[n] = '\0';
+    for (i = 0; i < n; i++) {
+        if (lk_key[i] == '+') {
+            memcpy(lk_enc + e, "%2B", 3);
+            e += 3;
+        } else {
+            lk_enc[e++] = lk_key[i];
+        }
+    }
+    lk_enc[e] = '\0';
+}
+
+static void long_ping(ctest_t *t, ak_t *a, const char *id, const char *want_id) {
+    (void)snprintf(lk_line, sizeof lk_line, "{\"jsonrpc\":\"2.0\",\"id\":\"%s\",\"method\":\"ping\"}", id);
+    (void)snprintf(lk_want, sizeof lk_want, "\"%s\"", want_id);
+    (void)snprintf(lk_exp, sizeof lk_exp, AK_OKR("%s", "{}"), lk_want);
+    ak_check_reply(t, a, ak_mcp(a, lk_line), lk_exp);
+}
+
+static ak_t *long_begin(void) {
+    ak_t *a = ak_begin();
+    ak_env(a, "ANNAS_SECRET_KEY", lk_key);
+    return a;
+}
+
+/* Pass 1 is the only pass: the raw key is redacted, the encoded key is echoed unchanged. */
+static void long_pass_one_only(ctest_t *t, size_t n) {
+    long_key_make(n);
+    CHECK_EQ_I64(t, (int64_t)strlen(lk_key), (int64_t)n);
+    ak_t *a = long_begin();
+    long_ping(t, a, lk_key, "REDACTED");
+    (void)snprintf(lk_id, sizeof lk_id, "a%sb", lk_key);
+    long_ping(t, a, lk_id, "aREDACTEDb");
+    long_ping(t, a, lk_enc, lk_enc);                     /* pass 2 is not applied */
+    (void)snprintf(lk_id, sizeof lk_id, "a%sb", lk_enc);
+    long_ping(t, a, lk_id, lk_id);
+    ak_check_no_io(t, a);
+}
+
+static void t_key_of_300_bytes_gets_pass_one_only(ctest_t *t) { long_pass_one_only(t, 300); }
+
+static void t_key_of_257_bytes_gets_pass_one_only(ctest_t *t) { long_pass_one_only(t, 257); }
+
+static void t_key_of_256_bytes_gets_both_passes(ctest_t *t) {
+    long_key_make(256);
+    CHECK_EQ_I64(t, (int64_t)strlen(lk_key), 256);
+    ak_t *a = long_begin();
+    long_ping(t, a, lk_key, "REDACTED");
+    long_ping(t, a, lk_enc, "REDACTED");                 /* the encoded form is redacted by pass 2 */
+    (void)snprintf(lk_id, sizeof lk_id, "a%sb", lk_enc);
+    long_ping(t, a, lk_id, "aREDACTEDb");
+    ak_check_no_io(t, a);
+}
+
 CTEST_SUITE("scrub_utf8",
     {"encoded_key_overlapping_a_raw_occurrence", t_encoded_key_overlapping_a_raw_occurrence},
     {"pass_two_reads_the_output_of_pass_one", t_pass_two_reads_the_output_of_pass_one},
@@ -275,4 +345,7 @@ CTEST_SUITE("scrub_utf8",
     {"mcp_server_text_well_formed_sequences_are_kept", t_mcp_server_text_well_formed_sequences_are_kept},
     {"cli_writes_the_bytes_verbatim", t_cli_writes_the_bytes_verbatim},
     {"mcp_environment_text_is_cleaned_too", t_mcp_environment_text_is_cleaned_too},
-    {"mcp_cut_names_are_made_valid", t_mcp_cut_names_are_made_valid})
+    {"mcp_cut_names_are_made_valid", t_mcp_cut_names_are_made_valid},
+    {"key_of_300_bytes_gets_pass_one_only", t_key_of_300_bytes_gets_pass_one_only},
+    {"key_of_257_bytes_gets_pass_one_only", t_key_of_257_bytes_gets_pass_one_only},
+    {"key_of_256_bytes_gets_both_passes", t_key_of_256_bytes_gets_both_passes})
