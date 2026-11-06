@@ -1,7 +1,5 @@
 load("@gate//rules:c.bzl", "c_library", "c_test")
 
-COMMON_TEST_DEPS = [":posix_fs", ":testkit", "//core:core", "//ports:ports"]
-
 c_library(
     name = "posix_fs",
     srcs = [
@@ -17,26 +15,26 @@ c_library(
     visibility = ["PUBLIC"],
 )
 
-# Test-only scaffolding (fault-injecting fake seam, real-directory helpers); not part of the product.
+# Test-only scaffolding (fault-injecting fake seam, real-directory helpers); not part of the product. Only the header
+# lives here: a library may not name the ctest target, so tests/kit.c is listed in the `srcs` of every c_test.
 c_library(
     name = "testkit",
-    srcs = ["tests/kit.c"],
+    srcs = [],
     headers = ["tests/kit.h"],
     deps = [
         ":posix_fs",
         "//core:core",
         "//ports:ports",
-        "gate//ctest:ctest",
     ],
     visibility = ["PUBLIC"],
 )
 
-c_test(name = "fs_contract_test", srcs = ["tests/fs_contract_test.c"], deps = COMMON_TEST_DEPS)
+c_test(name = "fs_contract_test", srcs = ["tests/fs_contract_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fs_args_test", srcs = ["tests/fs_args_test.c"], deps = COMMON_TEST_DEPS)
+c_test(name = "fs_args_test", srcs = ["tests/fs_args_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fs_errno_test", srcs = ["tests/fs_errno_test.c"], deps = COMMON_TEST_DEPS)
+c_test(name = "fs_errno_test", srcs = ["tests/fs_errno_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fs_commit_test", srcs = ["tests/fs_commit_test.c"], deps = COMMON_TEST_DEPS)
+c_test(name = "fs_commit_test", srcs = ["tests/fs_commit_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fs_real_test", srcs = ["tests/fs_real_test.c"], deps = COMMON_TEST_DEPS)
+c_test(name = "fs_real_test", srcs = ["tests/fs_real_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
