@@ -204,8 +204,9 @@ typedef struct {
 } annas_download_result_t;
 
 /* The API call. Order of work: (1) config: key (and for annas_download the download dir) must be non-empty, else
- * E_CONFIG with the combined message; (2) request validation (md5, then format) -> E_ARG; (1) and (2) happen before
- * ANY port call. (3) connect(base, 443, deadline); write
+ * E_CONFIG with the combined message; (2) request validation -> E_ARG: the fast call validates only the md5 and
+ * ignores title and format (annas_download also validates format, md5 first); (1) and (2) happen before ANY port
+ * call. (3) connect(base, 443, deadline); write
  *   GET /dyn/api/fast_download.json?md5=<md5>&key=<pct_encode(key)>[&path_index=<n>][&domain_index=<n>] HTTP/1.1
  * with Host: <base>; (4) read the whole response (redirects are NOT followed); more than ANNAS_API_BODY_MAX body
  * bytes -> E_PARSE; any http parser error -> E_PARSE, EOF too early -> E_NET; (5) http_detect_challenge(status,
