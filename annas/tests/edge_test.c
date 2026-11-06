@@ -97,6 +97,29 @@ static void t_unreserved_edge_bytes_are_echoed_raw(ctest_t *t) {
     }
 }
 
+static void t_key_at_the_end_of_the_server_text(ctest_t *t) {
+    expect_message(t, "k", "tail k", "tail REDACTED");
+    expect_message(t, "+", "tail %2B", "tail REDACTED");
+    expect_message(t, "+", "tail +", "tail REDACTED");
+    expect_message(t, "a b", "tail a b", "tail REDACTED");
+    expect_message(t, "+", "tail %2", "tail %2");
+    expect_message(t, "+ q", "tail %2B%20q", "tail REDACTED");
+    expect_message(t, KIT_KEY, "tail " KIT_KEY, "tail REDACTED");
+}
+
+static void t_download_url_starting_with_the_key_is_refused(ctest_t *t) {
+    static const char *const urls[] = {KIT_KEY, KIT_KEY "/f", "k", "k/f"};
+    for (size_t i = 0; i < COUNT(urls); i++) {
+        kit_t *k = kit_begin();
+        kit_set_key(k, i < 2 ? KIT_KEY : "k");
+        snprintf(g_body, sizeof g_body, "{\"download_url\":\"%s\"}", urls[i]);
+        kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", g_body));
+        annas_request_t r = kit_req(KIT_MD5);
+        kit_check_err(t, k, kit_fast(k, &r), ANNAS_E_PARSE, 0,
+                      i < 2 ? "download URL contains the secret key" : "download URL contains the secret REDACTEDey");
+    }
+}
+
 /* download of `format` against a good server; the file must be <md5>.<want_ext>. */
 static void download_with(ctest_t *t, const char *format, const char *want_file) {
     kit_t *k = kit_begin();
@@ -133,6 +156,8 @@ static void t_format_characters_next_to_the_classes_are_refused(ctest_t *t) {
 CTEST_SUITE("edge",
     {"one_byte_key", t_one_byte_key},
     {"key_at_the_start_of_the_server_text", t_key_at_the_start_of_the_server_text},
+    {"key_at_the_end_of_the_server_text", t_key_at_the_end_of_the_server_text},
+    {"download_url_starting_with_the_key_is_refused", t_download_url_starting_with_the_key_is_refused},
     {"percent_echo_of_bytes_next_to_the_unreserved_classes", t_percent_echo_of_bytes_next_to_the_unreserved_classes},
     {"percent_echo_with_one_wrong_hex_digit_is_left_alone", t_percent_echo_with_one_wrong_hex_digit_is_left_alone},
     {"unreserved_edge_bytes_are_echoed_raw", t_unreserved_edge_bytes_are_echoed_raw},
