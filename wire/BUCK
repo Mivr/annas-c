@@ -300,3 +300,25 @@ c_test(
         "//tls_stream:tls_stream",
     ],
 )
+
+c_test(
+    name = "survivor_e2e_test",
+    srcs = [
+        "tests/survivor_e2e_test.c",
+        "tests/kit.c",
+        "tests/peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)

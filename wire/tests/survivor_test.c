@@ -1,8 +1,7 @@
 /* wire: tests that pin what the mutation run (R004 T7) showed unpinned: state left over in the memory of an earlier run,
- * an empty or unreadable `.env`, a one-byte SSL_CERT_FILE or download path, the exact scrubbing of the key from a usage
- * error, the exact stderr text of a failed stdout, a last line of one byte, the lazily opened download directory seen
- * as a ports_fs_t (the only handle to it is wire_mem_t.deps.fs, which wire_run leaves in place), the TLS stream after
- * the run, and the libc seam with descriptor 0 closed. Positive controls come first in each case. */
+ * an empty or unreadable `.env`, a one-byte SSL_CERT_FILE, the exact scrubbing of the key from a usage error, the exact
+ * stderr text of a failed stdout, a last line of one byte, and the libc seam with descriptor 0 closed. Everything is
+ * observed through wire_run: the seam calls the kit records, stdout, stderr and the exit code. */
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -124,86 +123,6 @@ static void t_a_one_byte_ssl_cert_file_is_a_path(ctest_t *t) {
     CHECK_EQ_U64(t, kw_reads(), 2);
 }
 
-/* ---- lazyfs.c: the download directory as a port ----------------------------------------------------------------- */
-
-/* A run that builds the dependencies and fails at the network (exit 5) without ever opening the directory; the
- * ports_fs_t of the run is then at wire_mem_t.deps.fs. `dir` NULL leaves ANNAS_DOWNLOAD_PATH unset. */
-static ports_fs_t fs_after_run(ctest_t *t, const char *dir) {
-    kw_reset();
-    kw_env("ANNAS_SECRET_KEY", KW_KEY);
-    kw_ca(KW_CA_FAKE);
-    if (dir != NULL) {
-        kw_env("ANNAS_DOWNLOAD_PATH", dir);
-    }
-    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 5);
-    CHECK_EQ_U64(t, kw()->fs.opens, 0);
-    return kw_mem()->deps.fs;
-}
-
-static void t_a_directory_that_is_not_open_answers_arg_to_everything_but_create(ctest_t *t) {
-    ports_fs_t p = fs_after_run(t, "/dl");
-    CHECK_EQ_I64(t, p.ops->write(p.ctx, 1, "x", 1), PORTS_FS_E_ARG);
-    CHECK_EQ_I64(t, p.ops->commit(p.ctx, 1, (core_str_t){"n", 1}), PORTS_FS_E_ARG);
-    CHECK_EQ_I64(t, p.ops->discard(p.ctx, 1), PORTS_FS_E_ARG);
-    CHECK_EQ_U64(t, kw()->fs.opens, 0);
-}
-
-static void t_create_temp_without_a_usable_path_is_io(ctest_t *t) {
-    ports_fs_file_t f = 0;
-    ports_fs_t p = fs_after_run(t, NULL); /* unset */
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_E_IO);
-    CHECK_EQ_U64(t, kw()->fs.opens, 0);
-    p = fs_after_run(t, ""); /* empty */
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_E_IO);
-    CHECK_EQ_U64(t, kw()->fs.opens, 0);
-    p = fs_after_run(t, "/dl");
-    kw()->fs.open_err = -EACCES; /* the directory cannot be opened */
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_E_IO);
-    CHECK_EQ_U64(t, kw()->fs.opens, 1);
-    CHECK_EQ_U64(t, f, 0);
-}
-
-static void t_a_one_byte_download_path_is_opened(ctest_t *t) {
-    ports_fs_file_t f = 0;
-    ports_fs_t p = fs_after_run(t, "d");
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
-    CHECK(t, f != 0u);
-    CHECK_EQ_U64(t, kw()->fs.opens, 1);
-    CHECK_EQ_STR(t, kw()->fs.dir, "d");
-}
-
-static void t_an_open_directory_passes_the_results_of_the_posix_fs_through(ctest_t *t) {
-    ports_fs_file_t f = 0;
-    ports_fs_file_t g = 0;
-    ports_fs_t p = fs_after_run(t, "/dl");
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
-    CHECK_EQ_I64(t, p.ops->write(p.ctx, f, "abc", 3), PORTS_FS_OK);
-    CHECK_EQ_I64(t, p.ops->write(p.ctx, f + 1000u, "abc", 3), PORTS_FS_E_ARG);   /* an unknown handle */
-    CHECK_EQ_I64(t, p.ops->commit(p.ctx, f + 1000u, (core_str_t){"n", 1}), PORTS_FS_E_ARG);
-    CHECK_EQ_I64(t, p.ops->discard(p.ctx, f + 1000u), PORTS_FS_E_ARG);
-    CHECK_EQ_I64(t, p.ops->commit(p.ctx, f, (core_str_t){"name", 4}), PORTS_FS_OK);
-    CHECK_EQ_STR(t, kw()->fs.name, "name");
-    CHECK_EQ_MEM(t, kw()->fs.content, kw()->fs.content_len, "abc", 3);
-    CHECK_EQ_I64(t, p.ops->discard(p.ctx, f), PORTS_FS_E_ARG); /* the handle was consumed by the commit */
-    CHECK_EQ_I64(t, p.ops->write(p.ctx, f, "x", 1), PORTS_FS_E_ARG);
-    CHECK_EQ_I64(t, p.ops->commit(p.ctx, f, (core_str_t){"other", 5}), PORTS_FS_E_ARG);
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &g), PORTS_FS_OK);
-    unsigned closes = kw()->fs.closes;
-    CHECK_EQ_I64(t, p.ops->discard(p.ctx, g), PORTS_FS_OK);
-    CHECK_EQ_U64(t, kw()->fs.closes, closes + 1u); /* the temp file's descriptor was released */
-    CHECK_EQ_I64(t, p.ops->discard(p.ctx, g), PORTS_FS_E_ARG);
-    CHECK_EQ_U64(t, kw()->fs.opens, 1);
-}
-
-static void t_create_temp_reports_the_exhaustion_of_the_slots(ctest_t *t) {
-    ports_fs_file_t f = 0;
-    ports_fs_t p = fs_after_run(t, "/dl");
-    for (unsigned i = 0; i < POSIX_FS_SLOTS; i++) {
-        CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
-    }
-    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_E_NOSPACE);
-}
-
 /* ---- loop.c ---------------------------------------------------------------------------------------------------- */
 
 static void t_a_failed_stdout_in_the_loop_writes_exactly_the_text(ctest_t *t) {
@@ -289,19 +208,6 @@ static void t_invalid_dependencies_are_an_internal_error(ctest_t *t) {
     CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 5);
 }
 
-static void t_the_tls_stream_is_released_before_the_run_returns(ctest_t *t) {
-    base();
-    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 5);
-    ports_stream_t s = kw_mem()->deps.stream;
-    CHECK_EQ_I64(t, s.ops->connect(s.ctx, (core_str_t){"h.example", 9}, 443, 0), PORTS_E_ARG);
-    base(); /* the same after the MCP loop */
-    kw_in(KW_PING_REQ "\n");
-    CHECK_EQ_I64(t, KW_MCP0(), 0);
-    s = kw_mem()->deps.stream;
-    CHECK_EQ_I64(t, s.ops->connect(s.ctx, (core_str_t){"h.example", 9}, 443, 0), PORTS_E_ARG);
-    CHECK_EQ_U64(t, kw()->refused, 0);
-}
-
 static void t_help_of_the_mcp_binary_reports_a_failed_stdout(ctest_t *t) {
     base();
     kw()->w_fail_fd = WIRE_STDOUT;
@@ -343,20 +249,12 @@ CTEST_SUITE("wire_survivor",
      t_a_failed_dotenv_of_a_usage_error_forgets_the_earlier_entries},
     {"dotenv_read_overrunning_its_cap_is_the_read_text", t_a_dotenv_read_that_overruns_its_cap_is_the_read_text},
     {"a_one_byte_ssl_cert_file_is_a_path", t_a_one_byte_ssl_cert_file_is_a_path},
-    {"closed_directory_answers_arg_except_create",
-     t_a_directory_that_is_not_open_answers_arg_to_everything_but_create},
-    {"create_temp_without_a_usable_path_is_io", t_create_temp_without_a_usable_path_is_io},
-    {"a_one_byte_download_path_is_opened", t_a_one_byte_download_path_is_opened},
-    {"open_directory_passes_posix_fs_results",
-     t_an_open_directory_passes_the_results_of_the_posix_fs_through},
-    {"create_temp_reports_slot_exhaustion", t_create_temp_reports_the_exhaustion_of_the_slots},
     {"loop_failed_stdout_text_is_exact", t_a_failed_stdout_in_the_loop_writes_exactly_the_text},
     {"a_last_line_of_one_byte_is_handled", t_a_last_line_of_one_byte_is_handled},
     {"last_line_without_newline_failed_stdout", t_a_last_line_without_newline_that_cannot_be_written},
     {"key_replaced_everywhere_in_one_pass", t_the_key_is_replaced_everywhere_in_one_pass},
     {"a_one_byte_key_is_scrubbed", t_a_one_byte_key_is_scrubbed},
     {"invalid_dependencies_are_internal_error", t_invalid_dependencies_are_an_internal_error},
-    {"tls_stream_released_before_return", t_the_tls_stream_is_released_before_the_run_returns},
     {"mcp_help_reports_failed_stdout", t_help_of_the_mcp_binary_reports_a_failed_stdout},
     {"libc_seam_reads_file_opened_as_fd_zero",
      t_the_libc_seam_reads_a_file_that_opens_as_descriptor_zero},
