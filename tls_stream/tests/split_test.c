@@ -24,11 +24,15 @@ static void close_up(ctest_t *t, ports_stream_t p)
     kit_done(&g_s);
 }
 
-static void handshake_first_chunk(ctest_t *t, bool tls12)
+/* The 140 early split points are sharded over EARLY_PARTS cases: shard `part` takes the k with (k - 1) % EARLY_PARTS == part,
+ * so together the shards cover exactly k = 1..140 (each case stays short under the sanitizers). */
+#define EARLY_PARTS 4U
+
+static void handshake_first_chunk(ctest_t *t, bool tls12, size_t part)
 {
     ports_stream_t p;
     size_t k;
-    for (k = 1; k <= 140; k++) {
+    for (k = 1 + part; k <= 140; k += EARLY_PARTS) {
         CHECK_EQ_I64(t, open_split(&p, tls12, k, 0), PORTS_OK);
         CHECK(t, kit_exchange(p, 40, 40, 40));
         CHECK(t, kit()->calls[KIT_OP_RECV] >= 2);
@@ -36,8 +40,14 @@ static void handshake_first_chunk(ctest_t *t, bool tls12)
     }
 }
 
-static void t_handshake_split_at_every_early_byte_tls13(ctest_t *t) { handshake_first_chunk(t, false); }
-static void t_handshake_split_at_every_early_byte_tls12(ctest_t *t) { handshake_first_chunk(t, true); }
+static void t_handshake_split_at_every_early_byte_tls13(ctest_t *t) { handshake_first_chunk(t, false, 0); }
+static void t_handshake_split_at_every_early_byte_tls13_part1(ctest_t *t) { handshake_first_chunk(t, false, 1); }
+static void t_handshake_split_at_every_early_byte_tls13_part2(ctest_t *t) { handshake_first_chunk(t, false, 2); }
+static void t_handshake_split_at_every_early_byte_tls13_part3(ctest_t *t) { handshake_first_chunk(t, false, 3); }
+static void t_handshake_split_at_every_early_byte_tls12(ctest_t *t) { handshake_first_chunk(t, true, 0); }
+static void t_handshake_split_at_every_early_byte_tls12_part1(ctest_t *t) { handshake_first_chunk(t, true, 1); }
+static void t_handshake_split_at_every_early_byte_tls12_part2(ctest_t *t) { handshake_first_chunk(t, true, 2); }
+static void t_handshake_split_at_every_early_byte_tls12_part3(ctest_t *t) { handshake_first_chunk(t, true, 3); }
 
 static void handshake_later_points(ctest_t *t, bool tls12)
 {
@@ -125,7 +135,13 @@ static void t_transport_accepting_few_bytes_per_send_tls12(ctest_t *t) { sends(t
 
 CTEST_SUITE("tls_stream_split",
     { "handshake_split_at_every_early_byte_tls13", t_handshake_split_at_every_early_byte_tls13 },
+    { "handshake_split_at_every_early_byte_tls13_part1", t_handshake_split_at_every_early_byte_tls13_part1 },
+    { "handshake_split_at_every_early_byte_tls13_part2", t_handshake_split_at_every_early_byte_tls13_part2 },
+    { "handshake_split_at_every_early_byte_tls13_part3", t_handshake_split_at_every_early_byte_tls13_part3 },
     { "handshake_split_at_every_early_byte_tls12", t_handshake_split_at_every_early_byte_tls12 },
+    { "handshake_split_at_every_early_byte_tls12_part1", t_handshake_split_at_every_early_byte_tls12_part1 },
+    { "handshake_split_at_every_early_byte_tls12_part2", t_handshake_split_at_every_early_byte_tls12_part2 },
+    { "handshake_split_at_every_early_byte_tls12_part3", t_handshake_split_at_every_early_byte_tls12_part3 },
     { "handshake_split_later_points_tls13", t_handshake_split_later_points_tls13 },
     { "handshake_split_later_points_tls12", t_handshake_split_later_points_tls12 },
     { "whole_session_one_byte_at_a_time_tls13", t_whole_session_one_byte_at_a_time_tls13 },
