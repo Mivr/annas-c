@@ -23,8 +23,9 @@ Graded by [c-rigor-gate](https://github.com/Mivr/c-rigor-gate). Spec: [docs/spec
 | `ports` | core | L2 | `stream` (connect/read/write/close), `fs` (temp file, write, rename, remove in the download dir), `env`, `clock` as const function tables + fakes |
 | `annas` | core json url fsname http ports | L3 | pure v1 operations: fast_download call, response mapping, streamed download to temp + rename |
 | `tls_stream` | ports | L2 | adapter: TLS client stream on mbedTLS 3.6 LTS (vendored, pinned by sha256, built hermetically; system CA bundle path configurable) |
-| `posix_fs`, `posix_env`, `posix_clock` | ports | L2 | adapters |
-| `cli`, `mcp` | annas + adapters | L2 | wiring, output formats, JSON-RPC |
+| `posix_fs`, `posix_env`, `posix_clock` | ports | L2 | adapters over a syscall seam (fault-injecting fake + real libc); tests A016 |
+| `app` | core json annas ports | L2 | pure CLI + MCP core: tests merged (A014), impl A015 |
+| `cli`, `mcp` binaries | app + adapters | L1 | thin `main`s: wiring only |
 | ~~`html`~~ | | | deferred to v2 (search via a local index of the published dumps) |
 
 ## Dev builds
