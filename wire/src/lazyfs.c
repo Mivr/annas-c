@@ -31,8 +31,7 @@ static ports_fs_err_t lz_create_temp(void *ctx, ports_fs_file_t *file)
     if (!lazy_open(l)) {
         return PORTS_FS_E_IO;
     }
-    ports_fs_t p = posix_fs_port(&l->fs);
-    return p.ops->create_temp(p.ctx, file);
+    return posix_fs_create_temp(&l->fs, file);
 }
 
 static ports_fs_err_t lz_write(void *ctx, ports_fs_file_t file, const void *buf, size_t len)
@@ -41,8 +40,7 @@ static ports_fs_err_t lz_write(void *ctx, ports_fs_file_t file, const void *buf,
     if (!l->open) {
         return PORTS_FS_E_ARG;
     }
-    ports_fs_t p = posix_fs_port(&l->fs);
-    return p.ops->write(p.ctx, file, buf, len);
+    return posix_fs_write(&l->fs, file, buf, len);
 }
 
 static ports_fs_err_t lz_commit(void *ctx, ports_fs_file_t file, core_str_t final_name)
@@ -51,8 +49,7 @@ static ports_fs_err_t lz_commit(void *ctx, ports_fs_file_t file, core_str_t fina
     if (!l->open) {
         return PORTS_FS_E_ARG;
     }
-    ports_fs_t p = posix_fs_port(&l->fs);
-    return p.ops->commit(p.ctx, file, final_name);
+    return posix_fs_commit(&l->fs, file, final_name);
 }
 
 static ports_fs_err_t lz_discard(void *ctx, ports_fs_file_t file)
@@ -61,8 +58,7 @@ static ports_fs_err_t lz_discard(void *ctx, ports_fs_file_t file)
     if (!l->open) {
         return PORTS_FS_E_ARG;
     }
-    ports_fs_t p = posix_fs_port(&l->fs);
-    return p.ops->discard(p.ctx, file);
+    return posix_fs_discard(&l->fs, file);
 }
 
 static const ports_fs_ops_t k_lazy_ops = {lz_create_temp, lz_write, lz_commit, lz_discard};

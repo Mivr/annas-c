@@ -115,4 +115,12 @@ ports_fs_err_t posix_fs_close(posix_fs_t *fs);
  * operations all return PORTS_FS_E_ARG. */
 ports_fs_t posix_fs_port(posix_fs_t *fs);
 
+/* Direct entry points. Each is exactly the port operation of the same name (create_temp, write, commit, discard)
+ * with the same checks, results and failure behaviour described above, minus the void *ctx indirection: the port
+ * operations of posix_fs_port are thin calls of these. A NULL `fs` gives PORTS_FS_E_ARG. */
+ports_fs_err_t posix_fs_create_temp(posix_fs_t *fs, ports_fs_file_t *file);
+ports_fs_err_t posix_fs_write(posix_fs_t *fs, ports_fs_file_t file, const void *buf, size_t len);
+ports_fs_err_t posix_fs_commit(posix_fs_t *fs, ports_fs_file_t file, core_str_t final_name);
+ports_fs_err_t posix_fs_discard(posix_fs_t *fs, ports_fs_file_t file);
+
 #endif

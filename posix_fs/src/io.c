@@ -74,8 +74,7 @@ static ports_fs_err_t write_all(const posix_fs_t *fs, const posix_fs_slot_t *slo
     return PORTS_FS_OK;
 }
 
-ports_fs_err_t pfs_op_write(void *ctx, ports_fs_file_t file, const void *buf, size_t len) {
-    posix_fs_t *fs = (posix_fs_t *)ctx;
+ports_fs_err_t posix_fs_write(posix_fs_t *fs, ports_fs_file_t file, const void *buf, size_t len) {
     posix_fs_slot_t *slot = pfs_find(fs, file);
     if (slot == NULL || (buf == NULL && len > 0)) {
         return PORTS_FS_E_ARG;
@@ -116,8 +115,7 @@ static bool name_valid(core_str_t name) {
     return true;
 }
 
-ports_fs_err_t pfs_op_commit(void *ctx, ports_fs_file_t file, core_str_t final_name) {
-    posix_fs_t *fs = (posix_fs_t *)ctx;
+ports_fs_err_t posix_fs_commit(posix_fs_t *fs, ports_fs_file_t file, core_str_t final_name) {
     posix_fs_slot_t *slot = pfs_find(fs, file);
     if (slot == NULL || !name_valid(final_name)) {
         return PORTS_FS_E_ARG;
