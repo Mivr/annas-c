@@ -144,15 +144,13 @@ static int n_connect(void *ctx, core_str_t host, uint16_t port, uint64_t deadlin
 static long n_send(void *ctx, const void *buf, size_t len) {
     (void)ctx;
     (void)buf;
-    (void)len;
-    return -ENOTCONN;
+    return len > 0u ? -ENOTCONN : 0;
 }
 
 static long n_recv(void *ctx, void *buf, size_t cap) {
     (void)ctx;
     (void)buf;
-    (void)cap;
-    return -ENOTCONN;
+    return cap > 0u ? -ENOTCONN : 0;
 }
 
 static int n_wait(void *ctx, bool for_write, uint64_t deadline_ms) {
