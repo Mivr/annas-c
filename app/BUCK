@@ -241,3 +241,21 @@ c_test(
         "//ports:ports",
     ],
 )
+
+c_test(
+    name = "survivor_test",
+    srcs = [
+        "tests/survivor_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":app",
+        ":testkit",
+        "//annas:annas",
+        "//annas:testkit",
+        "//core:core",
+        "//json:json",
+        "//ports:ports",
+    ],
+)
