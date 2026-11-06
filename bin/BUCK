@@ -1,0 +1,35 @@
+load("@gate//rules:c.bzl", "c_binary")
+
+# The two binaries are L1: a `main` that owns the static working memory and calls wire_run(). No logic, no tests here
+# (a c_test cannot run a c_binary: the macros give a test no way to name another target's output); wire/ is tested.
+c_binary(
+    name = "annas-c",
+    srcs = ["annas_c_main.c"],
+    deps = [
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+        "//wire:wire",
+    ],
+)
+
+c_binary(
+    name = "annas-c-mcp",
+    srcs = ["annas_c_mcp_main.c"],
+    deps = [
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+        "//wire:wire",
+    ],
+)
