@@ -23,4 +23,6 @@ c_test(name = "str_test", srcs = ["tests/str_test.c"], deps = [":core"])
 
 c_test(name = "buf_test", srcs = ["tests/buf_test.c"], deps = [":core"])
 
+c_test(name = "buf_truncate_test", srcs = ["tests/buf_truncate_test.c"], deps = [":core"])
+
 c_test(name = "parse_test", srcs = ["tests/parse_test.c"], deps = [":core"])

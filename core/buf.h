@@ -43,6 +43,16 @@ void core_buf_put_char(core_buf_t *b, char c);
 /* Append v in decimal: no sign, no leading zeros, "0" for zero, up to "18446744073709551615". */
 void core_buf_put_u64(core_buf_t *b, uint64_t v);
 
+/* Shrink the content to its first `len` bytes. If len < core_buf_len(b): the length becomes len and,
+ * when cap >= 1, a NUL is stored at data[len] (bytes after it are unspecified, nothing outside
+ * data[0..cap) is touched). If len >= core_buf_len(b), or `b` is NULL, or cap == 0: no effect at all
+ * (truncate never grows). len == 0 empties the builder (content "", NUL at data[0]). The overflow flag
+ * is NEVER changed: truncating does not clear a sticky overflow, since the dropped tail of an
+ * overflowed append cannot be recovered, and later appends stay ignored until `core_buf_init`.
+ * Truncating twice to the same length equals truncating once. Appends after a truncation continue
+ * from the new length (subject to the usual capacity rules and stickiness). */
+void core_buf_truncate(core_buf_t *b, size_t len);
+
 /* Number of content bytes (0 for NULL). */
 size_t core_buf_len(const core_buf_t *b);
 

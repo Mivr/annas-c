@@ -73,3 +73,8 @@ const char *core_buf_cstr(const core_buf_t *b) {
     }
     return b->data;
 }
+
+void core_buf_truncate(core_buf_t *b, size_t len) {
+    (void)b;
+    (void)len;
+}
