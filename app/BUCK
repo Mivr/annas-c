@@ -8,8 +8,9 @@ c_library(
         "src/cli.c",
         "src/dotenv.c",
         "src/mcp.c",
+        "src/ops.c",
     ],
-    headers = ["app.h"],
+    headers = ["app.h", "src/internal.h"],
     deps = [
         "//annas:annas",
         "//core:core",
