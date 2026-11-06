@@ -43,10 +43,14 @@ blocks with the same fields as books; zero rows: `No articles found.`
 Upstream's CLI form `book-download <md5> <filename-with-ext>` is accepted as an alias (title = basename minus
 extension, format = extension; no extension = `E_ARG`).
 1. `md5` must be 32 hex characters (case-insensitive, normalised to lower case), else `E_ARG`.
-2. `GET /dyn/api/fast_download.json?md5=<md5>&key=<key>`. Non-200: `E_API <status>` with at most the first
-   512 bytes of the body (with the key redacted if present). JSON body `{ "download_url": string|null,
-   "error": string|null, ... }`: a non-empty `error` gives `E_API <error>`; empty or missing `download_url`
-   gives `E_API API returned empty download URL`.
+2. `GET /dyn/api/fast_download.json?md5=<md5>&key=<key>`. The body is JSON (`fixtures/live/`): success is
+   status **200 or 204** with a non-empty `download_url` (and an `account_fast_download_info` object); failures
+   use other statuses with `download_url: null` and an `error` string. Unknown keys (such as the
+   `///download_url` documentation array) are ignored. Map: status 200/204 with a non-empty string
+   `download_url` -> step 3; any other status, or `download_url` null/empty, -> `E_API <status>: <error>`
+   using the `error` string if present (at most 200 bytes), else `E_API <status>: API returned empty download URL`;
+   a body that is not JSON -> `E_API <status>` with at most the first 512 bytes of the body. The key is
+   redacted from every message.
 3. `GET <download_url>` (any https host), stream to `<dir>/<sanitised title>.<format>` via a temporary file in
    the same directory, then rename. On any failure the temporary file is removed and no partial file remains.
    Format is lower-cased; empty format means `bin`. Default title is the md5.
