@@ -1,0 +1,19 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "url",
+    srcs = ["src/url.c"],
+    headers = ["url.h"],
+    deps = ["//core:core"],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "url_pct_test", srcs = ["tests/url_pct_test.c"], deps = [":url", "//core:core"])
+
+c_test(name = "url_base_test", srcs = ["tests/url_base_test.c"], deps = [":url", "//core:core"])
+
+c_test(name = "url_build_test", srcs = ["tests/url_build_test.c"], deps = [":url", "//core:core"])
+
+c_test(name = "url_redact_test", srcs = ["tests/url_redact_test.c"], deps = [":url", "//core:core"])
+
+c_test(name = "url_ident_test", srcs = ["tests/url_ident_test.c"], deps = [":url", "//core:core"])

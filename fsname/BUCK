@@ -1,0 +1,15 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "fsname",
+    srcs = ["src/fsname.c"],
+    headers = ["fsname.h"],
+    deps = ["//core:core"],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "fsname_test", srcs = ["tests/fsname_test.c"], deps = [":fsname", "//core:core"])
+
+c_test(name = "fsname_utf8_test", srcs = ["tests/fsname_utf8_test.c"], deps = [":fsname", "//core:core"])
+
+c_test(name = "fsname_prop_test", srcs = ["tests/fsname_prop_test.c"], deps = [":fsname", "//core:core"])
