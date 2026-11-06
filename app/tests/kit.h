@@ -39,6 +39,7 @@ typedef struct {
     app_mcp_t mcp;
     bool mcp_ready;
     unsigned char parse_mem[AK_PARSE_CAP];
+    _Alignas(64) unsigned char scratch[APP_SCRATCH_MIN + 64u]; /* deps.scratch: exactly APP_SCRATCH_MIN bytes; +64 for offset tests */
     char line[AK_LINE_CAP];
 } ak_t;
 

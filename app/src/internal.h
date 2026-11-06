@@ -2,9 +2,9 @@
 #define APP_INTERNAL_H
 /* app/src/internal.h: private declarations shared by the app sources. Not part of the public interface.
  *
- * Memory plan (no malloc, no statics): the CLI has no scratch parameter, so app_cli_run borrows the unused
- * capacity behind the content of its `out` / `errout` buffers (app_span_of); the MCP server borrows the rest of
- * its parse arena after the request DOM. See the report of task A015. */
+ * Memory plan (no malloc, no statics): app_scratch_t is the layout of deps->scratch; the CLI and the MCP tools
+ * build their outcome text there, and the key scrubbing runs there. The MCP reply under construction lives in the
+ * parse arena behind the request DOM. */
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,7 +19,6 @@
 #define APP_INTERNAL_LINE "annas-c: internal error: invalid dependencies"
 #define APP_ECHO_MAX ((size_t)100)
 #define APP_TEXT_CAP ((size_t)8192)
-#define APP_ALIGN16(n) (((n) + (size_t)15u) & ~(size_t)15u)
 
 /* One operation (download or download-url) as the CLI and the MCP tools describe it. */
 typedef struct {
@@ -36,6 +35,23 @@ typedef struct {
     annas_download_result_t dl; /* dl.fast is the result of a download-url operation */
 } app_job_t;
 
+#define APP_FIN_MAX ((size_t)65536)
+
+/* deps->scratch: the first pass of the scrubbing, then the work area (job and outcome text), which the second
+ * pass reuses once they are consumed. */
+typedef struct {
+    char p1[APP_FIN_MAX];
+    union {
+        struct {
+            app_job_t job;
+            char text[APP_TEXT_CAP];
+        } w;
+        char p2[APP_FIN_MAX];
+    } u;
+} app_scratch_t;
+
+_Static_assert(sizeof(app_scratch_t) <= APP_SCRATCH_MIN, "scratch layout");
+
 typedef enum { APP_OP_OK = 0, APP_OP_FAIL, APP_OP_INTERNAL } app_op_status_t;
 
 /* config -> annas_ctx_init -> operation. FAIL: job->err is set. INTERNAL: deps unusable. */
@@ -45,10 +61,14 @@ void app_op_text(const app_op_t *op, const app_job_t *job, app_op_status_t st, c
 
 /* ANNAS_SECRET_KEY from deps->env; empty when unset or when the env port is unusable. */
 core_str_t app_key(const app_deps_t *d);
-/* Appends src with every occurrence of the key (raw, else percent-encoded) replaced by "REDACTED". */
-void app_scrub_put(core_buf_t *dst, core_str_t src, core_str_t key);
-/* Appends the content of `text` scrubbed; a text that overflowed puts dst into its overflow state. */
-void app_emit(core_buf_t *dst, const core_buf_t *text, core_str_t key);
+/* The view of deps->scratch (valid only after app_scratch_ok). */
+bool app_scratch_ok(const app_deps_t *d);
+app_scratch_t *app_scratch(const app_deps_t *d);
+/* The two scrubbing passes over `src` (see app.h): `res` is the final text, at most APP_FIN_MAX bytes, in `src` or
+ * in the scratch; false when it does not fit. `in_scratch`: src lives in the work area of the scratch. */
+bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str_t *res);
+/* Finalises `text` and appends it with ONE put; a text that does not fit puts dst into its overflow state. */
+void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text, bool in_scratch);
 
 /* The first APP_ECHO_MAX bytes of `in`, bytes < 0x20 and 0x7f as '?', into out[0..APP_ECHO_MAX); returns the length. */
 size_t app_echo_cut(core_str_t in, char *out);
@@ -56,13 +76,5 @@ size_t app_echo_cut(core_str_t in, char *out);
 void app_utf8_clean(char *s, size_t n);
 /* Appends s as the inside of a JSON string (the writer's escaping of json/json.h). */
 void app_put_escaped(core_buf_t *b, core_str_t s);
-
-/* Unused capacity behind the content of a buffer (after its NUL), and aligned allocation from such a span. */
-typedef struct {
-    unsigned char *p;
-    size_t left;
-} app_span_t;
-app_span_t app_span_of(const core_buf_t *b);
-void *app_span_take(app_span_t *sp, size_t n);
 
 #endif

@@ -74,6 +74,9 @@ const app_deps_t *ak_deps(ak_t *a) {
     a->deps.env = app_env_layer_port(&a->layer);
     a->deps.workspace = a->k->work;
     a->deps.workspace_cap = sizeof a->k->work;
+    memset(a->scratch, 0xA5, sizeof a->scratch); /* the app must not rely on zeroed scratch */
+    a->deps.scratch = a->scratch;
+    a->deps.scratch_cap = APP_SCRATCH_MIN;
     return &a->deps;
 }
 
