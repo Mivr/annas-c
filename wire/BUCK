@@ -1,0 +1,282 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+# The composition root as a module: everything with logic that the binaries of bin/ need. src/config.c: the `.env` file
+# and the CA bundle; src/io.c: the bounded read and write loops over the seams; src/lazyfs.c: the lazily opened download
+# directory as a ports_fs_t; src/loop.c: the MCP line loop; src/run.c: wire_run (arguments, order of work, wiring);
+# src/sys.c: the libc seam (wire_sys_libc, wire_io_libc); src/internal.h: the private prototypes shared by them (a
+# placeholder the implementer fills in).
+c_library(
+    name = "wire",
+    srcs = [
+        "src/config.c",
+        "src/io.c",
+        "src/lazyfs.c",
+        "src/loop.c",
+        "src/run.c",
+        "src/sys.c",
+    ],
+    headers = [
+        "src/internal.h",
+        "wire.h",
+    ],
+    deps = [
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Test-only scaffolding: the header of the fake seams, capture buffers and post-conditions. Its source, tests/kit.c, is
+# listed in the `srcs` of every c_test (like the other test kits of this repo: a library may not name the ctest target),
+# and so is tests/peer.c, the glue to the gate's TLS test peer, in the c_tests that use it (only a c_test may name the peer).
+c_library(
+    name = "testkit",
+    srcs = [],
+    headers = ["tests/kit.h"],
+    deps = [
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(
+    name = "dotenv_test",
+    srcs = [
+        "tests/dotenv_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "ca_test",
+    srcs = [
+        "tests/ca_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "usage_test",
+    srcs = [
+        "tests/usage_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "io_test",
+    srcs = [
+        "tests/io_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "loop_test",
+    srcs = [
+        "tests/loop_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "loop_bad_test",
+    srcs = [
+        "tests/loop_bad_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "sys_test",
+    srcs = [
+        "tests/sys_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+c_test(
+    name = "sys_fd_test",
+    srcs = [
+        "tests/sys_fd_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
+
+# End to end over a real TLS handshake with the gate's in-memory TLS server (tests/peer.c).
+
+c_test(
+    name = "e2e_test",
+    srcs = [
+        "tests/e2e_test.c",
+        "tests/kit.c",
+        "tests/peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "e2e_mcp_test",
+    srcs = [
+        "tests/e2e_mcp_test.c",
+        "tests/kit.c",
+        "tests/peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "e2e_secret_test",
+    srcs = [
+        "tests/e2e_secret_test.c",
+        "tests/kit.c",
+        "tests/peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
