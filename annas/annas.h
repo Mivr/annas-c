@@ -161,7 +161,8 @@ typedef struct {
 } annas_ports_t;
 
 /* Binds `cfg` (kept by pointer: must outlive the context, and its key/dir slices too), the three ports (`ports`,
- * copied by value; a port whose ops table or any of its functions is NULL makes it fail, as before) and `workspace[0..cap)` (all scratch memory: parser, IO buffer, API body, JSON arena; it need not be
+ * copied by value; a port whose ops table or any of its functions is NULL makes it fail, as before) and `workspace[0..cap)`
+ * (all scratch memory: parser, IO buffer, API body, JSON arena; it need not be
  * zeroed). Returns false (touching nothing that matters) when an argument is NULL, a port table pointer is NULL,
  * `cap < ANNAS_WORKSPACE_MIN`, or the workspace is not aligned to 16 bytes. A context is used by one operation at
  * a time. The ctx is a plain struct the caller allocates; treat its members as private. */

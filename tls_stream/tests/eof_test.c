@@ -191,18 +191,27 @@ static void t_complete_record_before_the_cut_is_delivered_tls12(ctest_t *t)
     finish(t, p);
 }
 
-static void truncated_handshake(ctest_t *t, bool tls12)
+/* The cut points are sharded over TRUNC_PARTS cases: shard `part` takes every cut whose index in the sequence of cut points is
+ * congruent to `part` modulo TRUNC_PARTS, so together the shards cover exactly the original set (each case stays short under the
+ * sanitizers). Shard 0 also runs the control. */
+#define TRUNC_PARTS 4U
+
+static void truncated_handshake(ctest_t *t, bool tls12, size_t part)
 {
     ports_stream_t p;
     size_t total;
     size_t k;
+    size_t idx = 0;
     kit_reset();
     CHECK_EQ_I64(t, kit_open(&g_s, &p, TLS_PEER_EC_VALID, tls12, kit_ca_root(), TLS_PEER_HOST, KIT_DEADLINE), PORTS_OK);
     total = kit()->delivered_total; /* everything the server sends during a complete handshake */
     CHECK(t, total > 200);
     finish(t, p);
     /* the signature length varies by a byte or two from run to run: stay clear of the very end */
-    for (k = 0; k + 16U < total; k += (k < 120 ? 1 : 83)) {
+    for (k = 0; k + 16U < total; k += (k < 120 ? 1 : 83), idx++) {
+        if (idx % TRUNC_PARTS != part) {
+            continue;
+        }
         kit_reset();
         kit()->inbound_limit = k;
         CHECK_EQ_I64(t, kit_open(&g_s, &p, TLS_PEER_EC_VALID, tls12, kit_ca_root(), TLS_PEER_HOST, KIT_DEADLINE), PORTS_E_NET);
@@ -211,6 +220,9 @@ static void truncated_handshake(ctest_t *t, bool tls12)
         CHECK_EQ_I64(t, p.ops->close(p.ctx), PORTS_E_CLOSED);
         kit_done(&g_s);
     }
+    if (part != 0) {
+        return;
+    }
     kit_reset();
     kit()->inbound_limit = total + 64U; /* control: a limit beyond the whole handshake changes nothing */
     CHECK_EQ_I64(t, kit_open(&g_s, &p, TLS_PEER_EC_VALID, tls12, kit_ca_root(), TLS_PEER_HOST, KIT_DEADLINE), PORTS_OK);
@@ -218,8 +230,14 @@ static void truncated_handshake(ctest_t *t, bool tls12)
     kit_done(&g_s);
 }
 
-static void t_truncated_handshake_is_net_tls13(ctest_t *t) { truncated_handshake(t, false); }
-static void t_truncated_handshake_is_net_tls12(ctest_t *t) { truncated_handshake(t, true); }
+static void t_truncated_handshake_is_net_tls13(ctest_t *t) { truncated_handshake(t, false, 0); }
+static void t_truncated_handshake_is_net_tls13_part1(ctest_t *t) { truncated_handshake(t, false, 1); }
+static void t_truncated_handshake_is_net_tls13_part2(ctest_t *t) { truncated_handshake(t, false, 2); }
+static void t_truncated_handshake_is_net_tls13_part3(ctest_t *t) { truncated_handshake(t, false, 3); }
+static void t_truncated_handshake_is_net_tls12(ctest_t *t) { truncated_handshake(t, true, 0); }
+static void t_truncated_handshake_is_net_tls12_part1(ctest_t *t) { truncated_handshake(t, true, 1); }
+static void t_truncated_handshake_is_net_tls12_part2(ctest_t *t) { truncated_handshake(t, true, 2); }
+static void t_truncated_handshake_is_net_tls12_part3(ctest_t *t) { truncated_handshake(t, true, 3); }
 
 static void t_close_notify_then_close_notifies_back(ctest_t *t)
 {
@@ -247,5 +265,11 @@ CTEST_SUITE("tls_stream_eof",
     { "eof_one_byte_short_of_a_record_tls13", t_eof_one_byte_short_of_a_record_tls13 },
     { "complete_record_before_the_cut_is_delivered_tls12", t_complete_record_before_the_cut_is_delivered_tls12 },
     { "truncated_handshake_is_net_tls13", t_truncated_handshake_is_net_tls13 },
+    { "truncated_handshake_is_net_tls13_part1", t_truncated_handshake_is_net_tls13_part1 },
+    { "truncated_handshake_is_net_tls13_part2", t_truncated_handshake_is_net_tls13_part2 },
+    { "truncated_handshake_is_net_tls13_part3", t_truncated_handshake_is_net_tls13_part3 },
     { "truncated_handshake_is_net_tls12", t_truncated_handshake_is_net_tls12 },
+    { "truncated_handshake_is_net_tls12_part1", t_truncated_handshake_is_net_tls12_part1 },
+    { "truncated_handshake_is_net_tls12_part2", t_truncated_handshake_is_net_tls12_part2 },
+    { "truncated_handshake_is_net_tls12_part3", t_truncated_handshake_is_net_tls12_part3 },
     { "close_notify_then_close_notifies_back", t_close_notify_then_close_notifies_back })
