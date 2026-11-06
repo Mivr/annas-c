@@ -3,6 +3,20 @@
 Written by the orchestrator from a behavioural study of `annas-mcp`; implementers work from this file only.
 Where this spec deliberately differs from upstream it says **Deviation**.
 
+## 0. Scope of v1 (owner decision 2026-11-06)
+v1 exposes **only what the member JSON API supports**. Anna's Archive documents exactly one stable API,
+`/dyn/api/fast_download.json` (see `fixtures/live/`); its HTML pages answer non-browser clients with a
+browser-verification redirect, and its FAQ points custom search at the published ElasticSearch/MariaDB dumps.
+So v1 has:
+- `download <md5>` (§3.3) and its MCP tool `book_download`;
+- `download-url <md5>` and MCP tool `fast_download_url`: the same API call, returning the `download_url`
+  and the account info without fetching the file;
+- the API's optional `path_index` and `domain_index` (integers >= 0) on both;
+- the account's fast-download info (`account_fast_download_info`, printed as returned: its JSON object
+  re-serialised compactly) after each successful call.
+**Deferred to v2** (local index built from the published metadata dumps): §3.1, §3.2, §3.4, §3.5 and §4.
+They stay in this document as the v2 design and must not be implemented in v1.
+
 ## 1. Configuration
 - Sources, later wins: a `.env` file in the current directory (`KEY=VALUE` lines, `#` comments, optional
   double quotes), then the process environment.
@@ -26,13 +40,13 @@ Challenge detection, applied to every HTML response before parsing, returns `E_B
 Other non-2xx: `E_HTTP <status>`. Network failure: `E_NET`.
 
 ## 3. Operations
-### 3.1 `book-search <query>` / MCP `book_search{query}`
+### 3.1 `book-search <query>` / MCP `book_search{query}`  *(v2, not in v1)*
 `GET /search?q=<urlencoded query>&content=book_any`. Parse result rows (§4.1). Output for zero rows:
 `No books found.` Otherwise for each row `Book <n>:` then, one per line, `Title:`, `Authors:`,
 `Publisher:`, `Language:`, `Format:`, `Size:`, `URL:` (`https://<base>/md5/<hash>`), `Hash:`; blank line
 between books.
 
-### 3.2 `article-search <query>` / MCP `article_search{query}`
+### 3.2 `article-search <query>` / MCP `article_search{query}`  *(v2, not in v1)*
 If the trimmed query starts with `10.` it is a DOI: do §3.4 lookup and print one block with `DOI:`, `Title:`,
 `Authors:`, `Journal:`, `Size:`, `Hash:`, `Download URL:`, `Page:`; on failure `No paper found for DOI: <q>`.
 Otherwise `GET /search?q=<q>&content=journal`, parse as §4.1 (publisher field = journal), print `Article <n>:`
@@ -56,7 +70,7 @@ extension, format = extension; no extension = `E_ARG`).
    Format is lower-cased; empty format means `bin`. Default title is the md5.
 4. Success: `Book downloaded successfully to: <path>`.
 
-### 3.4 DOI lookup (used by article-search and article-download)
+### 3.4 DOI lookup (used by article-search and article-download)  *(v2, not in v1)*
 1. `GET /scidb/<doi>`; follow redirects (max 5). From the final HTML take the first `a[href^="/md5/"]`; its
    hash is the href without `/md5/`. None: not found.
 2. `GET /md5/<hash>`. Title: text of `<title>` before ` - Anna`. Journal: `meta[name=description]` content
@@ -65,13 +79,13 @@ extension, format = extension; no extension = `E_ARG`).
    `div.text-gray-500` whose text contains `MB` or `KB`, matched by `\d+(\.\d+)?\s*(KB|MB|GB|TB)`.
 3. Download URL is `https://<base>/scidb?doi=<doi>`; Page is `https://<base>/md5/<hash>`.
 
-### 3.5 `article-download <doi>` / MCP `article_download{doi}`
+### 3.5 `article-download <doi>` / MCP `article_download{doi}`  *(v2, not in v1)*
 Lookup (§3.4), then §3.3 with the hash, title from lookup and format `pdf`. If that fails and the failure is not
 `E_BROWSER_CHECK`, fall back to `GET /scidb?doi=<doi>` and save the body; extension from `Content-Disposition`
 filename, else from `Content-Type` (`application/pdf` -> `.pdf`), else `.pdf`.
 **Deviation:** `--md5 <hash>` skips the lookup entirely.
 
-## 4. HTML extraction
+## 4. HTML extraction  *(v2, not in v1)*
 All selectors live in one table in the `annas` module so a site change is a one-place edit plus new fixtures.
 The HTML tokenizer must be tolerant (unclosed tags, attributes without quotes, entities `&amp; &lt; &gt; &quot;
 &#NN; &#xHH;`) and bounded (input size cap 8 MiB, nesting cap 256; beyond: `E_PARSE`).
@@ -92,11 +106,13 @@ The HTML tokenizer must be tolerant (unclosed tags, attributes without quotes, e
 ## 5. MCP server (`annas-c mcp`)
 Newline-delimited JSON-RPC 2.0 on stdin/stdout; logs to stderr only. Implement `initialize` (server name
 `annas-c`, protocol version echoed from a supported list), `notifications/initialized`, `tools/list`,
-`tools/call`, `ping`. Tools: `book_search{query}`, `book_download{hash,title,format}`,
-`article_search{query}`, `article_download{doi}`; all strings required except `title` and `format`; every tool
-also takes optional integer `timeout_seconds`. Results are one `text` content block holding the CLI output;
-operation errors are returned as `isError: true` results with the error text (not JSON-RPC errors). Malformed
-JSON: JSON-RPC `-32700`; unknown method `-32601`; bad params `-32602`. Line length cap 1 MiB.
+`tools/call`, `ping`. v1 tools:
+- `book_download{hash, title?, format?, path_index?, domain_index?, timeout_seconds?}` -> §3.3;
+- `fast_download_url{hash, path_index?, domain_index?, timeout_seconds?}` -> the API call only; result text is
+  `Download URL: <url>` then `Account: <compact JSON of account_fast_download_info>` (omitted if absent).
+`hash` and `title` are strings, the rest integers >= 0. Results are one `text` content block holding the CLI
+output; operation errors are returned as `isError: true` results with the error text (not JSON-RPC errors).
+Malformed JSON: JSON-RPC `-32700`; unknown method `-32601`; bad params `-32602`. Line length cap 1 MiB.
 
 ## 6. Exit codes (CLI)
 0 ok; 2 `E_ARG`/`E_CONFIG`; 3 `E_BROWSER_CHECK`; 4 `E_HTTP`/`E_API`; 5 `E_NET`/`E_TIMEOUT`; 6 `E_FS`;

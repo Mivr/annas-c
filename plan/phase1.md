@@ -12,18 +12,20 @@ Graded by [c-rigor-gate](https://github.com/Mivr/c-rigor-gate). Spec: [docs/spec
 3. Hidden tests (private repo, phase 1 later) and mutation testing then check that the visible tests were
    neither too weak nor overfitted.
 
-## Modules, in order
-| Module | Depends on | Level | Notes |
+## Modules, in order (v1 = API only, see spec §0)
+| Module | Depends on | Level | Status / notes |
 |---|---|---|---|
-| `core` | - | L3 | arena (bump allocator over a caller buffer), byte slices, bounded byte builder, checked integer parse |
-| `json` | core | L3 | strict RFC 8259 parser (bounded depth, size) into an arena DOM; writer |
-| `url` | core | L3 | percent-encoding, query building, base-URL normalisation (spec §1) |
-| `fsname` | core | L3 | filename sanitiser (spec §7) |
-| `html` | core | L3 | tolerant tokenizer + minimal selector evaluation for the spec §4 table |
-| `ports` | core | L2 | `transport`, `fs`, `env`, `clock` interfaces (const function tables) + fakes for tests |
-| `annas` | core json url fsname html ports | L3 | pure operations of spec §3 over the ports |
-| `curl_transport`, `posix_fs`, `posix_env` | ports | L2 | adapters (libcurl vendored later) |
+| `core` | - | L3 | merged (provisional) |
+| `json` | core | L3 | merged (provisional) |
+| `url` | core | L3 | merged (provisional); only base, fast_download builder, redaction and md5 are used in v1 |
+| `fsname` | core | L3 | merged (provisional) |
+| `http` | core | L3 | HTTP/1.1 response parser + request writer (GET only; status line, headers, Content-Length, chunked, redirects <= 5), over a byte-stream port |
+| `ports` | core | L2 | `stream` (connect/read/write/close), `fs` (temp file, write, rename, remove in the download dir), `env`, `clock` as const function tables + fakes |
+| `annas` | core json url fsname http ports | L3 | pure v1 operations: fast_download call, response mapping, streamed download to temp + rename |
+| `tls_stream` | ports | L2 | adapter: TLS client stream on mbedTLS 3.6 LTS (vendored, pinned by sha256, built hermetically; system CA bundle path configurable) |
+| `posix_fs`, `posix_env`, `posix_clock` | ports | L2 | adapters |
 | `cli`, `mcp` | annas + adapters | L2 | wiring, output formats, JSON-RPC |
+| ~~`html`~~ | | | deferred to v2 (search via a local index of the published dumps) |
 
 ## Dev builds
 `gate/` is a git submodule of c-rigor-gate (pinned) only for local development; the grader ignores it and the
