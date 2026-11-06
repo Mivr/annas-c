@@ -56,10 +56,9 @@ void msg_ok(annas_error_t *err) {
     err->message[0] = '\0';
 }
 
-annas_code_t msg_fail(annas_error_t *err, annas_code_t code, int status, core_str_t key, core_str_t prefix,
-                      core_str_t echo, size_t cut) {
-    cat_t t = {prefix, echo, true};
-    sink_t s = {err->message, 0, SIZE_MAX, cut};
+annas_code_t msg_fail(annas_error_t *err, annas_code_t code, int status, core_str_t key, const msg_body_t *body) {
+    cat_t t = {body->prefix, body->echo, true};
+    sink_t s = {err->message, 0, SIZE_MAX, body->cut};
     finalise(&s, &t, key);
     err->message[s.o] = '\0';
     err->message_len = s.o;
@@ -70,7 +69,8 @@ annas_code_t msg_fail(annas_error_t *err, annas_code_t code, int status, core_st
 
 annas_code_t msg_text(annas_error_t *err, annas_code_t code, int status, core_str_t key, const char *text) {
     core_str_t none = {NULL, 0};
-    return msg_fail(err, code, status, key, core_str_from_cstr(text), none, MSG_NO_CUT);
+    msg_body_t body = {core_str_from_cstr(text), none, MSG_NO_CUT};
+    return msg_fail(err, code, status, key, &body);
 }
 
 core_str_t msg_u64(char *buf, size_t cap, const char *lead, uint64_t n, const char *tail) {

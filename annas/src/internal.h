@@ -51,10 +51,16 @@ annas_code_t arg_invalid(annas_error_t *err, core_str_t key);
 #define MSG_NO_CUT SIZE_MAX
 
 void msg_ok(annas_error_t *err);
-/* Sets code/status and the message "<prefix><echo>", finalised as the header describes (control bytes, key
- * redaction); the echo part is cut to `cut` bytes AFTER that. Returns `code`. */
-annas_code_t msg_fail(annas_error_t *err, annas_code_t code, int status, core_str_t key, core_str_t prefix,
-                      core_str_t echo, size_t cut);
+/* The text of a message: "<prefix><echo>", the echo part cut to `cut` bytes (MSG_NO_CUT: not cut). */
+typedef struct {
+    core_str_t prefix;
+    core_str_t echo;
+    size_t cut;
+} msg_body_t;
+
+/* Sets code/status and the message `body`, finalised as the header describes (control bytes, key redaction);
+ * the echo part is cut AFTER that. Returns `code`. */
+annas_code_t msg_fail(annas_error_t *err, annas_code_t code, int status, core_str_t key, const msg_body_t *body);
 annas_code_t msg_text(annas_error_t *err, annas_code_t code, int status, core_str_t key, const char *text);
 /* lead + decimal(n) + tail, into buf[0..cap) (always fits for the callers); returns the text. */
 core_str_t msg_u64(char *buf, size_t cap, const char *lead, uint64_t n, const char *tail);

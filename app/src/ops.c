@@ -151,35 +151,48 @@ size_t app_echo_cut(core_str_t in, char *out) {
     return n;
 }
 
-/* Length of the well-formed UTF-8 sequence at p[0..n), or 0. */
-static size_t seq_len(const unsigned char *p, size_t n) {
-    unsigned char c = p[0];
-    unsigned char lo = 0x80;
-    unsigned char hi = 0xbf;
+/* Continuation bytes a lead byte needs (0: not a lead byte) and the range of the first of them. */
+static size_t lead_need(unsigned char c, unsigned char *lo, unsigned char *hi) {
     size_t need;
-    if (c < 0x80u) {
-        return 1;
-    }
+    *lo = 0x80;
+    *hi = 0xbf;
     if (c >= 0xc2u && c <= 0xdfu) {
         need = 1;
     } else if (c >= 0xe0u && c <= 0xefu) {
         need = 2;
-        lo = c == 0xe0u ? 0xa0 : lo;
-        hi = c == 0xedu ? 0x9f : hi;
+        *lo = c == 0xe0u ? 0xa0 : *lo;
+        *hi = c == 0xedu ? 0x9f : *hi;
     } else if (c >= 0xf0u && c <= 0xf4u) {
         need = 3;
-        lo = c == 0xf0u ? 0x90 : lo;
-        hi = c == 0xf4u ? 0x8f : hi;
+        *lo = c == 0xf0u ? 0x90 : *lo;
+        *hi = c == 0xf4u ? 0x8f : *hi;
     } else {
         return 0;
     }
-    if (n <= need || p[1] < lo || p[1] > hi) {
-        return 0;
-    }
+    return need;
+}
+
+/* Bytes 2..need of a sequence are continuation bytes. */
+static bool tail_ok(const unsigned char *p, size_t need) {
     for (size_t k = 2; k <= need; k++) {
         if ((p[k] & 0xc0u) != 0x80u) {
-            return 0;
+            return false;
         }
+    }
+    return true;
+}
+
+/* Length of the well-formed UTF-8 sequence at p[0..n), or 0. */
+static size_t seq_len(const unsigned char *p, size_t n) {
+    unsigned char lo;
+    unsigned char hi;
+    size_t need;
+    if (p[0] < 0x80u) {
+        return 1;
+    }
+    need = lead_need(p[0], &lo, &hi);
+    if (need == 0 || n <= need || p[1] < lo || p[1] > hi || !tail_ok(p, need)) {
+        return 0;
     }
     return need + 1u;
 }

@@ -9,12 +9,14 @@
     "\"domain_index\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Download server index, 0 or larger.\"}," \
     "\"timeout_seconds\":{\"type\":\"integer\",\"minimum\":0,\"description\":\"Time limit in seconds (0 = server default of 3600).\"}"
 #define TOOLS_LIST                                                                                             \
-    "{\"tools\":[{\"name\":\"book_download\",\"description\":\"Download a book by MD5 hash with a member account key and save it in the download directory.\"," \
+    "{\"tools\":[{\"name\":\"book_download\",\"description\":\""                                       \
+    "Download a book by MD5 hash with a member account key and save it in the download directory.\"," \
     "\"inputSchema\":{\"type\":\"object\",\"properties\":{" PROP_HASH ","                                       \
     "\"title\":{\"type\":\"string\",\"description\":\"File name without extension (default: the hash).\"},"      \
     "\"format\":{\"type\":\"string\",\"description\":\"File extension, 1 to 16 letters or digits (default: bin).\"}," \
     PROPS_COMMON "},\"required\":[\"hash\"],\"additionalProperties\":false}},"                                   \
-    "{\"name\":\"fast_download_url\",\"description\":\"Get the fast download URL and the account's download quota for an MD5 hash without downloading the file.\"," \
+    "{\"name\":\"fast_download_url\",\"description\":\""                                                \
+    "Get the fast download URL and the account's download quota for an MD5 hash without downloading the file.\"," \
     "\"inputSchema\":{\"type\":\"object\",\"properties\":{" PROP_HASH "," PROPS_COMMON                           \
     "},\"required\":[\"hash\"],\"additionalProperties\":false}}]}"
 

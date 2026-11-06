@@ -265,6 +265,12 @@ static void emit_url(core_buf_t *out, const ref_t *r, const http_url_t *cur, con
     }
 }
 
+static bool resolve_args_ok(const http_redirects_t *r, const http_url_t *cur, core_str_t location,
+                            const core_buf_t *out) {
+    return r != NULL && cur != NULL && out != NULL && (location.ptr != NULL || location.len == 0) &&
+           (cur->host.ptr != NULL || cur->host.len == 0) && (cur->target.ptr != NULL || cur->target.len == 0);
+}
+
 http_status_t http_redirect_resolve(http_redirects_t *r, const http_url_t *cur, int status, core_str_t location,
                                     core_buf_t *out) {
     ref_t ref;
@@ -272,8 +278,7 @@ http_status_t http_redirect_resolve(http_redirects_t *r, const http_url_t *cur, 
     ref_t cq;
     merged_t m;
     http_status_t st;
-    if (r == NULL || cur == NULL || out == NULL || (location.ptr == NULL && location.len > 0) ||
-        (cur->host.ptr == NULL && cur->host.len > 0) || (cur->target.ptr == NULL && cur->target.len > 0)) {
+    if (!resolve_args_ok(r, cur, location, out)) {
         return HTTP_E_ARG;
     }
     if (!http_is_redirect_status(status) || location.len == 0) {

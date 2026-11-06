@@ -4,10 +4,17 @@
 
 #define LIT(s) ((core_str_t){(s), sizeof(s) - 1})
 
+static bool is_alnum_byte(unsigned char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+/* The punctuation of RFC 9110 tchar. */
+static bool is_tchar_symbol(unsigned char c) {
+    return c != '\0' && strchr("!#$%&'*+-.^_`|~", c) != NULL;
+}
+
 static bool is_tchar(unsigned char c) {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '!' || c == '#' ||
-           c == '$' || c == '%' || c == '&' || c == '\'' || c == '*' || c == '+' || c == '-' || c == '.' ||
-           c == '^' || c == '_' || c == '`' || c == '|' || c == '~';
+    return is_alnum_byte(c) || is_tchar_symbol(c);
 }
 
 /* HTAB, SP, 0x21..0x7E and bytes >= 0x80. */
@@ -25,17 +32,36 @@ static bool all_text(const unsigned char *s, size_t n) {
     return true;
 }
 
+/* "HTTP/1.0 " or "HTTP/1.1 " at the start of a line of n >= 12 bytes. */
+static bool status_prefix_ok(const unsigned char *l, size_t n) {
+    return n >= 12 && memcmp(l, "HTTP/1.", 7) == 0 && (l[7] == '0' || l[7] == '1') && l[8] == ' ';
+}
+
+static bool is_digit_byte(unsigned char c) {
+    return c >= '0' && c <= '9';
+}
+
+/* The three digits at l[9..11] as a number, or -1. */
+static int status_code(const unsigned char *l) {
+    if (!is_digit_byte(l[9]) || !is_digit_byte(l[10]) || !is_digit_byte(l[11])) {
+        return -1;
+    }
+    return (l[9] - '0') * 100 + (l[10] - '0') * 10 + (l[11] - '0');
+}
+
+/* A code in 200..599, then either nothing or " <reason text>". */
+static bool status_rest_ok(const unsigned char *l, size_t n, int code) {
+    return code >= 200 && code <= 599 && (n <= 12 || (l[12] == ' ' && all_text(l + 13, n - 13)));
+}
+
 http_status_t http_status_line(http_parser_t *p, size_t n, http_event_t *ev) {
     const unsigned char *l = p->line;
     int code;
-    if (n < 12 || memcmp(l, "HTTP/1.", 7) != 0 || (l[7] != '0' && l[7] != '1') || l[8] != ' ') {
+    if (!status_prefix_ok(l, n)) {
         return HTTP_E_STATUS_LINE;
     }
-    if (l[9] < '0' || l[9] > '9' || l[10] < '0' || l[10] > '9' || l[11] < '0' || l[11] > '9') {
-        return HTTP_E_STATUS_LINE;
-    }
-    code = (l[9] - '0') * 100 + (l[10] - '0') * 10 + (l[11] - '0');
-    if (code < 200 || code > 599 || (n > 12 && (l[12] != ' ' || !all_text(l + 13, n - 13)))) {
+    code = status_code(l);
+    if (code < 0 || !status_rest_ok(l, n, code)) {
         return HTTP_E_STATUS_LINE;
     }
     ev->kind = HTTP_EV_STATUS;
@@ -139,13 +165,33 @@ static size_t name_end(const unsigned char *l, size_t n) {
     return (i > 0 && i < n && l[i] == ':') ? i : n;
 }
 
+static bool is_ows(unsigned char c) {
+    return c == ' ' || c == '\t';
+}
+
+static void lower_ascii(unsigned char *l, size_t n) {
+    size_t i;
+    for (i = 0; i < n; i++) {
+        l[i] = (l[i] >= 'A' && l[i] <= 'Z') ? (unsigned char)(l[i] - 'A' + 'a') : l[i];
+    }
+}
+
+/* Strips optional whitespace from both ends of l[b..e). */
+static core_str_t trim_ows(const unsigned char *l, size_t b, size_t e) {
+    while (b < e && is_ows(l[b])) {
+        b++;
+    }
+    while (e > b && is_ows(l[e - 1])) {
+        e--;
+    }
+    return (core_str_t){(const char *)l + b, e - b};
+}
+
 http_status_t http_header_line(http_parser_t *p, size_t n, bool trailer, http_event_t *ev) {
     unsigned char *l = p->line;
     size_t c;
-    size_t b;
-    size_t e;
     http_status_t st;
-    if (l[0] == ' ' || l[0] == '\t') {
+    if (is_ows(l[0])) {
         return HTTP_E_FOLDING;
     }
     c = name_end(l, n);
@@ -156,19 +202,9 @@ http_status_t http_header_line(http_parser_t *p, size_t n, bool trailer, http_ev
         return HTTP_E_TOO_MANY_HEADERS;
     }
     p->header_count++;
-    for (b = 0; b < c; b++) {
-        l[b] = (l[b] >= 'A' && l[b] <= 'Z') ? (unsigned char)(l[b] - 'A' + 'a') : l[b];
-    }
-    b = c + 1;
-    e = n;
-    while (b < e && (l[b] == ' ' || l[b] == '\t')) {
-        b++;
-    }
-    while (e > b && (l[e - 1] == ' ' || l[e - 1] == '\t')) {
-        e--;
-    }
+    lower_ascii(l, c);
     ev->name = (core_str_t){(const char *)l, c};
-    ev->value = (core_str_t){(const char *)l + b, e - b};
+    ev->value = trim_ows(l, c + 1, n);
     st = framing_line(p, trailer, ev->name, ev->value);
     if (st != HTTP_OK) {
         return st;
