@@ -188,8 +188,9 @@ bool kit_prepare(kit_t *k) {
     sync_cfg(k);
     bool ok = ports_fake_stream_init(&k->stream, k->steps, k->n_steps, &k->clock, k->read_advance);
     ok = ports_fake_fs_init(&k->fs, k->fs_store, k->fs_cap) && ok;
-    ok = annas_ctx_init(&k->ctx, &k->cfg, ports_fake_stream_port(&k->stream), ports_fake_fs_port(&k->fs),
-                        ports_fake_clock_port(&k->clock), k->work, sizeof k->work) &&
+    ok = annas_ctx_init(&k->ctx, &k->cfg, (annas_ports_t){ports_fake_stream_port(&k->stream), ports_fake_fs_port(&k->fs),
+                                        ports_fake_clock_port(&k->clock)},
+                        k->work, sizeof k->work) &&
          ok;
     return ok;
 }
