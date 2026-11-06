@@ -4,7 +4,7 @@ Builds use Buck2 through the gate's pinned wrapper, on the shared RE farm (`forg
 built on the host.
 
 ```sh
-git submodule update --init gate          # c-rigor-gate pinned at e9645c3
+git submodule update --init gate          # c-rigor-gate pinned at d58247a
 gate/tools/buck2 build //core/...         # release (default)
 gate/tools/buck2 build //core/... --target-platforms toolchains//:linux_san
 gate/tools/buck2 test  //core/...         # runs the ctest binaries
@@ -31,3 +31,10 @@ directory (`core/arena.h`, included as `"core/arena.h"`) rather than `core/inclu
 ## Daemon caveat
 In the sandbox the Buck2 daemon can miss file changes. If a build seems to use stale sources, run
 `gate/tools/buck2 kill` and build again.
+
+## Gate tools in-tree
+The pinned gate ships its own checks, so no borrowed clone is needed:
+```sh
+gate/tools/job --help
+gate/gate/rigor structure --help      # the `rigor` entry point is gate/gate/rigor, not gate/rigor
+```
