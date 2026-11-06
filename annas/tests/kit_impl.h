@@ -27,6 +27,18 @@ static void sync_cfg(kit_t *k) {
     pct(k->key, k->key_pct, sizeof k->key_pct);
 }
 
+static uint64_t step_now(void *ctx) {
+    kit_t *k = (kit_t *)ctx;
+    uint64_t v = k->clock.now;
+    k->clock_calls++;
+    ports_fake_clock_advance(&k->clock, k->clock_step);
+    return v;
+}
+static const ports_clock_ops_t g_step_clock_ops = {step_now};
+
+void kit_step_clock(kit_t *k, uint64_t step) { k->clock_step = step; }
+unsigned kit_clock_calls(const kit_t *k) { return k->clock_calls; }
+
 kit_t *kit_begin(void) {
     static kit_t g;
     memset(&g, 0, sizeof g);
@@ -186,10 +198,12 @@ bool kit_prepare(kit_t *k) {
     }
     k->prepared = true;
     sync_cfg(k);
-    bool ok = ports_fake_stream_init(&k->stream, k->steps, k->n_steps, &k->clock, k->read_advance);
+    bool stepping = k->clock_step != 0;
+    bool ok = ports_fake_stream_init(&k->stream, k->steps, k->n_steps, stepping ? NULL : &k->clock, k->read_advance);
     ok = ports_fake_fs_init(&k->fs, k->fs_store, k->fs_cap) && ok;
-    ok = annas_ctx_init(&k->ctx, &k->cfg, (annas_ports_t){ports_fake_stream_port(&k->stream), ports_fake_fs_port(&k->fs),
-                                        ports_fake_clock_port(&k->clock)},
+    ports_clock_t clock = stepping ? (ports_clock_t){&g_step_clock_ops, k} : ports_fake_clock_port(&k->clock);
+    ok = annas_ctx_init(&k->ctx, &k->cfg,
+                        (annas_ports_t){ports_fake_stream_port(&k->stream), ports_fake_fs_port(&k->fs), clock},
                         k->work, sizeof k->work) &&
          ok;
     return ok;

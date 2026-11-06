@@ -34,6 +34,8 @@ typedef struct {
     char scratch[24576];
     ports_fake_clock_t clock;
     uint64_t read_advance;
+    uint64_t clock_step;   /* kit_step_clock */
+    unsigned clock_calls;
     ports_fake_stream_t stream;
     ports_fake_fs_t fs;
     unsigned char *fs_store;
@@ -55,6 +57,12 @@ void kit_set_base(kit_t *k, const char *base);
 void kit_set_dir(kit_t *k, const char *dir);
 void kit_set_timeout_s(kit_t *k, uint64_t s);
 void kit_use_fs(kit_t *k, void *storage, size_t cap);
+/* Before kit_prepare: the clock port advances by `step` ms AFTER every now_ms call, so the deadline lands on an exact
+ * port call (the j-th clock read after the operation's first one is the j-th deadline check). The scripted stream then
+ * gets no clock, so only annas's own deadline checks can report a timeout. */
+void kit_step_clock(kit_t *k, uint64_t step);
+/* now_ms calls made through the stepping clock (all of them, the operation's first one included). */
+unsigned kit_clock_calls(const kit_t *k);
 
 /* Copies n bytes into the pool, NUL-terminates, returns the stable pointer (NULL if the pool is full). */
 const char *kit_put(kit_t *k, int n);

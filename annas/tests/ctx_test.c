@@ -79,6 +79,71 @@ static void t_init_rejects_null(ctest_t *t) {
     CHECK(t, init_with(&g_cfg, s, f, c, g_ws, ANNAS_WORKSPACE_MIN)); /* control */
 }
 
+/* ---- a port table with a NULL function is refused (annas.h annas_ctx_init) ------------------------------ */
+
+enum { STREAM_FNS = 4, FS_FNS = 4 };
+
+static ports_stream_t stream_without(ports_stream_ops_t *copy, int which) {
+    ports_stream_t good = ports_fake_stream_port(&g_stream);
+    *copy = *good.ops;
+    switch (which) {
+    case 0: copy->connect = NULL; break;
+    case 1: copy->write = NULL; break;
+    case 2: copy->read = NULL; break;
+    case 3: copy->close = NULL; break;
+    default: break; /* control: complete copy */
+    }
+    return (ports_stream_t){copy, good.ctx};
+}
+
+static ports_fs_t fs_without(ports_fs_ops_t *copy, int which) {
+    ports_fs_t good = ports_fake_fs_port(&g_fs);
+    *copy = *good.ops;
+    switch (which) {
+    case 0: copy->create_temp = NULL; break;
+    case 1: copy->write = NULL; break;
+    case 2: copy->commit = NULL; break;
+    case 3: copy->discard = NULL; break;
+    default: break;
+    }
+    return (ports_fs_t){copy, good.ctx};
+}
+
+static void t_init_rejects_a_stream_with_a_null_function(ctest_t *t) {
+    setup();
+    ports_fs_t f = ports_fake_fs_port(&g_fs);
+    ports_clock_t c = ports_fake_clock_port(&g_clock);
+    ports_stream_ops_t ops;
+    for (int i = 0; i < STREAM_FNS; i++) {
+        ports_stream_t s = stream_without(&ops, i);
+        CHECK(t, !init_with(&g_cfg, s, f, c, g_ws, ANNAS_WORKSPACE_MIN));
+    }
+    CHECK(t, init_with(&g_cfg, stream_without(&ops, STREAM_FNS), f, c, g_ws, ANNAS_WORKSPACE_MIN)); /* control */
+}
+
+static void t_init_rejects_an_fs_with_a_null_function(ctest_t *t) {
+    setup();
+    ports_stream_t s = ports_fake_stream_port(&g_stream);
+    ports_clock_t c = ports_fake_clock_port(&g_clock);
+    ports_fs_ops_t ops;
+    for (int i = 0; i < FS_FNS; i++) {
+        ports_fs_t f = fs_without(&ops, i);
+        CHECK(t, !init_with(&g_cfg, s, f, c, g_ws, ANNAS_WORKSPACE_MIN));
+    }
+    CHECK(t, init_with(&g_cfg, s, fs_without(&ops, FS_FNS), c, g_ws, ANNAS_WORKSPACE_MIN)); /* control */
+}
+
+static void t_init_rejects_a_clock_with_a_null_function(ctest_t *t) {
+    setup();
+    ports_stream_t s = ports_fake_stream_port(&g_stream);
+    ports_fs_t f = ports_fake_fs_port(&g_fs);
+    ports_clock_ops_t ops = {NULL};
+    ports_clock_t c = {&ops, &g_clock};
+    CHECK(t, !init_with(&g_cfg, s, f, c, g_ws, ANNAS_WORKSPACE_MIN));
+    ops = *ports_fake_clock_port(&g_clock).ops;
+    CHECK(t, init_with(&g_cfg, s, f, c, g_ws, ANNAS_WORKSPACE_MIN)); /* control */
+}
+
 static void expect_missing(ctest_t *t, annas_code_t got) {
     CHECK_EQ_I64(t, got, ANNAS_E_CONFIG);
     CHECK_EQ_I64(t, g_err.code, ANNAS_E_CONFIG);
@@ -143,6 +208,9 @@ CTEST_SUITE("ctx",
     {"init_rejects_small_workspace", t_init_rejects_small_workspace},
     {"init_alignment", t_init_alignment},
     {"init_rejects_null", t_init_rejects_null},
+    {"init_rejects_a_stream_with_a_null_function", t_init_rejects_a_stream_with_a_null_function},
+    {"init_rejects_an_fs_with_a_null_function", t_init_rejects_an_fs_with_a_null_function},
+    {"init_rejects_a_clock_with_a_null_function", t_init_rejects_a_clock_with_a_null_function},
     {"missing_key_or_dir_is_config_error_before_any_port_call", t_missing_key_or_dir_is_config_error_before_any_port_call},
     {"config_is_checked_before_arguments", t_config_is_checked_before_arguments},
     {"null_arguments", t_null_arguments})
