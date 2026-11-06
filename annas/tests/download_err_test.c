@@ -271,6 +271,118 @@ static void t_malformed_head_creates_no_file(ctest_t *t) {
     kit_check_fs_untouched(t, k);
 }
 
+/* ---- NULL slices with a length: E_ARG "invalid argument" before any port call ---------------------------- */
+
+static void expect_invalid_argument(ctest_t *t, kit_t *k, const annas_request_t *r) {
+    kit_check_err(t, k, kit_download(k, r), ANNAS_E_ARG, 0, "invalid argument");
+    CHECK_EQ_U64(t, ports_fake_stream_pos(&k->stream), 0);
+    kit_check_fs_untouched(t, k);
+}
+
+static void t_null_title_with_a_length_is_an_invalid_argument(ctest_t *t) {
+    kit_t *k = kit_begin();
+    annas_request_t r = kit_req(KIT_MD5);
+    r.title = (core_str_t){NULL, 3};
+    expect_invalid_argument(t, k, &r);
+}
+
+static void t_null_format_with_a_length_is_an_invalid_argument(ctest_t *t) {
+    kit_t *k = kit_begin();
+    annas_request_t r = kit_req(KIT_MD5);
+    r.format = (core_str_t){NULL, 3};
+    expect_invalid_argument(t, k, &r);
+}
+
+static void t_null_md5_with_a_length_is_an_invalid_argument(ctest_t *t) {
+    kit_t *k = kit_begin();
+    annas_request_t r = kit_req(KIT_MD5);
+    r.md5 = (core_str_t){NULL, 32};
+    expect_invalid_argument(t, k, &r);
+}
+
+static void t_a_null_slice_is_reported_before_a_bad_md5_or_format(ctest_t *t) {
+    kit_t *k = kit_begin();
+    annas_request_t r = kit_req("xyz");
+    r.title = (core_str_t){NULL, 3};
+    expect_invalid_argument(t, k, &r);
+    k = kit_begin();
+    r = kit_req(KIT_MD5);
+    r.format = (core_str_t){NULL, 3};
+    r.title = core_str_from_cstr("t");
+    expect_invalid_argument(t, k, &r);
+}
+
+static void t_null_slices_of_length_zero_are_absent(ctest_t *t) {
+    kit_t *k = kit_begin(); /* md5 {NULL, 0} is not a NULL pointer error, it is not 32 digits */
+    annas_request_t r = kit_req(KIT_MD5);
+    r.md5 = (core_str_t){NULL, 0};
+    kit_check_err(t, k, kit_download(k, &r), ANNAS_E_ARG, 0, "md5 must be 32 hexadecimal characters");
+    CHECK_EQ_U64(t, ports_fake_stream_pos(&k->stream), 0);
+    k = kit_begin(); /* title and format {NULL, 0} mean absent: "<md5>.bin" */
+    api_ok(k, "https://dl.example.org/f/1?x=1");
+    kit_connect(k, "dl.example.org", 443);
+    kit_expect_get(k, "dl.example.org", 443, "/f/1?x=1");
+    kit_respond(k, kit_http(k, 200, "OK", "", "data"), 0);
+    r = kit_req(KIT_MD5);
+    r.title = (core_str_t){NULL, 0};
+    r.format = (core_str_t){NULL, 0};
+    kit_check_ok(t, k, kit_download(k, &r));
+    kit_check_file(t, k, KIT_MD5 ".bin", "data", 4);
+}
+
+static void t_fast_ignores_title_and_format_slices(ctest_t *t) {
+    kit_t *k = kit_begin();
+    kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", kit_ok_json(k, DLURL, NULL)));
+    annas_request_t r = kit_req(KIT_MD5);
+    r.title = (core_str_t){NULL, 3};
+    r.format = (core_str_t){NULL, 3};
+    kit_check_ok(t, k, kit_fast(k, &r));
+    CHECK_EQ_STR(t, k->fast.url, DLURL);
+    k = kit_begin(); /* but a NULL md5 with a length is refused */
+    r = kit_req(KIT_MD5);
+    r.md5 = (core_str_t){NULL, 32};
+    kit_check_err(t, k, kit_fast(k, &r), ANNAS_E_ARG, 0, "invalid argument");
+    CHECK_EQ_U64(t, ports_fake_stream_pos(&k->stream), 0);
+}
+
+/* ---- the challenge text is looked for in the first 1024 body bytes, whatever the read boundaries -------- */
+
+/* 403, Content-Length 2000, three reads: head + body[0,400), body[400,1000), body[1000,2000); "ddos-guard" at `at`. */
+static annas_code_t reject_403_with_marker_at(kit_t *k, size_t at) {
+    static char body[2001];
+    static char first[4096];
+    memset(body, 'a', 2000);
+    body[2000] = '\0';
+    memcpy(body + at, "ddos-guard", 10);
+    const char *head = kit_head(k, 403, "Forbidden", "", 2000);
+    size_t hl = strlen(head);
+    memcpy(first, head, hl);
+    memcpy(first + hl, body, 400);
+    to_dl(k);
+    kit_respond_n(k, kit_put_str(k, first, hl + 400), hl + 400, 0);
+    kit_respond_n(k, kit_put_str(k, body + 400, 600), 600, 0);
+    kit_respond_n(k, kit_put_str(k, body + 1000, 1000), 1000, 0);
+    return run(k);
+}
+
+static void t_ddos_guard_in_a_later_read_is_a_challenge(ctest_t *t) {
+    static const size_t at[] = {5, 500, 1014}; /* 1st read, 2nd read, ending exactly at byte 1024 */
+    for (size_t i = 0; i < COUNT(at); i++) {
+        kit_t *k = kit_begin();
+        kit_check_err(t, k, reject_403_with_marker_at(k, at[i]), ANNAS_E_BROWSER_CHECK, 0, BROWSER);
+        kit_check_fs_untouched(t, k);
+    }
+}
+
+static void t_ddos_guard_beyond_the_first_1024_bytes_is_not(ctest_t *t) {
+    static const size_t at[] = {1015, 1020, 1030}; /* crossing 1024, crossing, wholly after */
+    for (size_t i = 0; i < COUNT(at); i++) {
+        kit_t *k = kit_begin();
+        kit_check_err(t, k, reject_403_with_marker_at(k, at[i]), ANNAS_E_HTTP, 403, "unexpected HTTP status 403");
+        kit_check_fs_untouched(t, k);
+    }
+}
+
 CTEST_SUITE("download_err",
     {"api_failure_stops_before_any_download", t_api_failure_stops_before_any_download},
     {"bad_arguments_touch_nothing", t_bad_arguments_touch_nothing},
@@ -285,4 +397,12 @@ CTEST_SUITE("download_err",
     {"read_failures_after_the_head_discard_the_temp_file", t_read_failures_after_the_head_discard_the_temp_file},
     {"truncated_bodies_discard_the_temp_file", t_truncated_bodies_discard_the_temp_file},
     {"malformed_bodies_discard_the_temp_file", t_malformed_bodies_discard_the_temp_file},
-    {"malformed_head_creates_no_file", t_malformed_head_creates_no_file})
+    {"malformed_head_creates_no_file", t_malformed_head_creates_no_file},
+    {"null_title_with_a_length_is_an_invalid_argument", t_null_title_with_a_length_is_an_invalid_argument},
+    {"null_format_with_a_length_is_an_invalid_argument", t_null_format_with_a_length_is_an_invalid_argument},
+    {"null_md5_with_a_length_is_an_invalid_argument", t_null_md5_with_a_length_is_an_invalid_argument},
+    {"a_null_slice_is_reported_before_a_bad_md5_or_format", t_a_null_slice_is_reported_before_a_bad_md5_or_format},
+    {"null_slices_of_length_zero_are_absent", t_null_slices_of_length_zero_are_absent},
+    {"fast_ignores_title_and_format_slices", t_fast_ignores_title_and_format_slices},
+    {"ddos_guard_in_a_later_read_is_a_challenge", t_ddos_guard_in_a_later_read_is_a_challenge},
+    {"ddos_guard_beyond_the_first_1024_bytes_is_not", t_ddos_guard_beyond_the_first_1024_bytes_is_not})
