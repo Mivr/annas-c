@@ -56,3 +56,7 @@ c_test(name = "mcp_args_test", srcs = ["tests/mcp_args_test.c"], deps = COMMON_T
 c_test(name = "mcp_call_test", srcs = ["tests/mcp_call_test.c"], deps = COMMON_TEST_DEPS)
 
 c_test(name = "leak_test", srcs = ["tests/leak_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "scratch_test", srcs = ["tests/scratch_test.c"], deps = COMMON_TEST_DEPS + ["//json:json"])
+
+c_test(name = "scrub_utf8_test", srcs = ["tests/scrub_utf8_test.c"], deps = COMMON_TEST_DEPS)
