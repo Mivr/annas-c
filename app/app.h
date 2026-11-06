@@ -16,7 +16,8 @@
  *   pass 2: only if url_pct_encode(key) differs from the key, every non-overlapping occurrence (left to right) of
  *           url_pct_encode(key) in the OUTPUT OF PASS 1 is replaced by "REDACTED".
  * (Reason: it is the rule annas already applies to its messages, annas.h "finalised by the same three steps", so
- * the product has one scrubbing rule. Consequences, pinned by tests: pass 2 scans the output of pass 1, so the bytes of a replaced raw occurrence are gone for it; an
+ * the product has one scrubbing rule. Consequences, pinned by tests: pass 2 scans the output of pass 1, so the bytes of a
+ * replaced raw occurrence are gone for it; an
  * occurrence of the encoded key that overlaps a raw occurrence is destroyed by pass 1 and survives only as the
  * bytes pass 1 left of it; and a "REDACTED" written by pass 1 may combine with its neighbours into the encoded
  * key, which pass 2 then replaces.)
@@ -160,7 +161,8 @@ typedef struct {
 } app_dotenv_t;
 
 /* Parses the bytes of a `.env` file. Lines end at '\n'; a '\r' at the end of a line (before the '\n', or at the very end of
- * the file) is dropped (CRLF); the last line needs no terminator. For each line: strip leading and trailing ASCII whitespace (space, \t, \v, \f); an empty line or
+ * the file) is dropped (CRLF); the last line needs no terminator. For each line: strip leading and trailing ASCII whitespace
+ * (space, \t, \v, \f); an empty line or
  * one whose first byte is '#' is skipped. Otherwise split at the FIRST '='; a line without '=' is skipped.
  * The name (trimmed of whitespace) must be 1 or more bytes of [A-Za-z0-9_], else the line is skipped. The value
  * is the rest, trimmed; if it has at least 2 bytes and starts and ends with '"', the value is what is between
