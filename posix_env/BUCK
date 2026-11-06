@@ -1,0 +1,14 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "posix_env",
+    srcs = ["src/env.c"],
+    headers = ["posix_env.h"],
+    deps = [
+        "//core:core",
+        "//ports:ports",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "env_test", srcs = ["tests/env_test.c"], deps = [":posix_env", "//core:core", "//ports:ports"])
