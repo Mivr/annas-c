@@ -1,0 +1,42 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+COMMON_TEST_DEPS = [":posix_fs", ":testkit", "//core:core", "//ports:ports"]
+
+c_library(
+    name = "posix_fs",
+    srcs = [
+        "src/fs.c",
+        "src/io.c",
+        "src/sys.c",
+    ],
+    headers = ["posix_fs.h", "src/internal.h"],
+    deps = [
+        "//core:core",
+        "//ports:ports",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Test-only scaffolding (fault-injecting fake seam, real-directory helpers); not part of the product.
+c_library(
+    name = "testkit",
+    srcs = ["tests/kit.c"],
+    headers = ["tests/kit.h"],
+    deps = [
+        ":posix_fs",
+        "//core:core",
+        "//ports:ports",
+        "gate//ctest:ctest",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "fs_contract_test", srcs = ["tests/fs_contract_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "fs_args_test", srcs = ["tests/fs_args_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "fs_errno_test", srcs = ["tests/fs_errno_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "fs_commit_test", srcs = ["tests/fs_commit_test.c"], deps = COMMON_TEST_DEPS)
+
+c_test(name = "fs_real_test", srcs = ["tests/fs_real_test.c"], deps = COMMON_TEST_DEPS)
