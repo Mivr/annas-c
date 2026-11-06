@@ -348,6 +348,80 @@ static void t_builders_append_after_existing_text(ctest_t *t) {
     is_str(t, "GET https://annas-archive.gl/search?q=a&content=book_anyhttps://annas-archive.gl/md5/" MD5S);
 }
 
+/* ---- NULL base (R004 T3). url.h lines 12-14: `ptr == NULL` with `len > 0` is URL_E_ARG, nothing is
+ * appended, and URL_E_ARG takes precedence over URL_E_INVALID. */
+#define NULLBASE ((core_str_t){NULL, 5})
+#define PAT 0x5A
+
+static char snap[sizeof store];
+
+/* Fill with a known pattern, init the buffer, then snapshot the whole store (init may write its own NUL). */
+static void pattern(void) {
+    memset(store, PAT, sizeof store);
+    core_buf_init(&B, store, sizeof store);
+    memcpy(snap, store, sizeof store);
+}
+
+/* Every byte of the store, including past the would-be end, equals the snapshot. */
+static void pattern_intact(ctest_t *t) {
+    CHECK_EQ_MEM(t, store, sizeof store, snap, sizeof snap);
+    CHECK_EQ_U64(t, core_buf_len(&B), 0);
+    CHECK(t, !core_buf_overflow(&B));
+}
+
+static void t_fast_download_null_base(ctest_t *t) {
+    pattern();
+    CHECK_EQ_I64(t, url_build_fast_download(&B, NULLBASE, MD5, LIT("k")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_fast_download(&B, NULLBASE, LIT("BAD"), LIT("k")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_fast_download(&B, NULLBASE, MD5, EMPTY), URL_E_ARG);   /* invalid key too */
+    pattern_intact(t);
+    /* Empty base: url.h "`base` must be a normalised domain (url_base_is_valid)" and
+     * url_base_is_valid is false for empty, so URL_E_INVALID. */
+    pattern();
+    CHECK_EQ_I64(t, url_build_fast_download(&B, EMPTY, MD5, LIT("k")), URL_E_INVALID);
+    pattern_intact(t);
+}
+
+static void t_md5_page_null_base(ctest_t *t) {
+    pattern();
+    CHECK_EQ_I64(t, url_build_md5_page(&B, NULLBASE, MD5), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_md5_page(&B, NULLBASE, LIT("BAD")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_md5_page(&B, EMPTY, MD5), URL_E_INVALID);   /* url.h: base must be url_base_is_valid */
+    pattern_intact(t);
+}
+
+static void t_scidb_path_null_base(ctest_t *t) {
+    pattern();
+    CHECK_EQ_I64(t, url_build_scidb_path(&B, NULLBASE, LIT("10.1/x")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_scidb_path(&B, NULLBASE, LIT("nope")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_scidb_path(&B, EMPTY, LIT("10.1/x")), URL_E_INVALID);   /* url.h: base must be valid */
+    pattern_intact(t);
+}
+
+static void t_scidb_download_null_base(ctest_t *t) {
+    pattern();
+    CHECK_EQ_I64(t, url_build_scidb_download(&B, NULLBASE, LIT("10.1/x")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_scidb_download(&B, NULLBASE, LIT("nope")), URL_E_ARG);
+    pattern_intact(t);
+    pattern();
+    CHECK_EQ_I64(t, url_build_scidb_download(&B, EMPTY, LIT("10.1/x")), URL_E_INVALID);   /* url.h: base must be valid */
+    pattern_intact(t);
+}
+
 CTEST_SUITE("url_build",
     {"search_book", t_search_book},
     {"search_journal", t_search_journal},
@@ -366,4 +440,8 @@ CTEST_SUITE("url_build",
     {"scidb_rejections", t_scidb_rejections},
     {"capacity_boundaries_of_every_builder", t_capacity_boundaries_of_every_builder},
     {"invalid_beats_overflow_and_sticky_overflow", t_invalid_beats_overflow_and_sticky_overflow},
-    {"builders_append_after_existing_text", t_builders_append_after_existing_text})
+    {"builders_append_after_existing_text", t_builders_append_after_existing_text},
+    {"fast_download_null_base", t_fast_download_null_base},
+    {"md5_page_null_base", t_md5_page_null_base},
+    {"scidb_path_null_base", t_scidb_path_null_base},
+    {"scidb_download_null_base", t_scidb_download_null_base})
