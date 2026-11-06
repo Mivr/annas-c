@@ -1,0 +1,291 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+# The adapter. src/tls_stream.c: init/connect/read/write/close and the error mapping; src/bio.c: the mbedTLS
+# BIO callbacks over the transport seam (errno handling, deadline, wait); src/heap.c: the arena allocator
+# handed to mbedtls_platform_set_calloc_free; src/sock.c: the production socket transport;
+# src/internal.h: the private state shared by them (a placeholder the implementer fills in).
+c_library(
+    name = "tls_stream",
+    srcs = [
+        "src/bio.c",
+        "src/heap.c",
+        "src/sock.c",
+        "src/tls_stream.c",
+    ],
+    headers = [
+        "src/internal.h",
+        "tls_stream.h",
+    ],
+    deps = [
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/mbedtls:mbedtls",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Test-only scaffolding: the header of the in-memory pipe to the TLS peer. Its sources, tests/kit_net.c (the
+# fault-injecting transport, the manual clock) and tests/kit_peer.c (the glue to the peer), are listed in the
+# `srcs` of every c_test below that uses them, because only a c_test may name the peer.
+c_library(
+    name = "testkit",
+    srcs = [],
+    headers = ["tests/kit.h"],
+    deps = [
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(
+    name = "api_test",
+    srcs = [
+        "tests/api_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "state_test",
+    srcs = [
+        "tests/state_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "session_test",
+    srcs = [
+        "tests/session_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "bulk_test",
+    srcs = [
+        "tests/bulk_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "split_test",
+    srcs = [
+        "tests/split_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "cert_test",
+    srcs = [
+        "tests/cert_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "host_test",
+    srcs = [
+        "tests/host_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "trust_test",
+    srcs = [
+        "tests/trust_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "eof_test",
+    srcs = [
+        "tests/eof_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "alert_test",
+    srcs = [
+        "tests/alert_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "deadline_test",
+    srcs = [
+        "tests/deadline_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "fault_test",
+    srcs = [
+        "tests/fault_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "errno_test",
+    srcs = [
+        "tests/errno_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "reuse_test",
+    srcs = [
+        "tests/reuse_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
+    name = "sizing_test",
+    srcs = [
+        "tests/sizing_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+# The production socket transport needs no peer: only its argument checks and table are reachable offline.
+c_test(
+    name = "sock_test",
+    srcs = ["tests/sock_test.c"],
+    deps = [
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+    ],
+)
