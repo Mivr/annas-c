@@ -16,7 +16,7 @@
  *   pass 2: only if url_pct_encode(key) differs from the key, every non-overlapping occurrence (left to right) of
  *           url_pct_encode(key) in the OUTPUT OF PASS 1 is replaced by "REDACTED".
  * (Reason: it is the rule annas already applies to its messages, annas.h "finalised by the same three steps", so
- * the product has one scrubbing rule. Consequences, pinned by tests: pass 2 does not see what pass 1 replaced; an
+ * the product has one scrubbing rule. Consequences, pinned by tests: pass 2 scans the output of pass 1, so the bytes of a replaced raw occurrence are gone for it; an
  * occurrence of the encoded key that overlaps a raw occurrence is destroyed by pass 1 and survives only as the
  * bytes pass 1 left of it; and a "REDACTED" written by pass 1 may combine with its neighbours into the encoded
  * key, which pass 2 then replaces.)
@@ -59,7 +59,7 @@
 
 /* `env` is the LAYERED environment (see app_env_layer_*); `workspace` is annas's scratch memory:
  * >= ANNAS_WORKSPACE_MIN bytes, 16-byte aligned. `scratch` is THIS module's own scratch memory (the job's config,
- * context, error and result structs, and the texts and the reply under construction): >= APP_SCRATCH_MIN bytes,
+ * context, error and result structs, the outcome text and the scrubbed text): >= APP_SCRATCH_MIN bytes,
  * 16-byte aligned, and it must not overlap `workspace`, the output buffers or the MCP parse arena. Its contents on
  * return are unspecified. All fields must be valid; the struct is copied by app_mcp_init and used by pointer in
  * app_cli_run (it must outlive the call). A workspace or port that annas_ctx_init refuses makes the operation fail
