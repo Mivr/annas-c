@@ -44,30 +44,102 @@ static size_t match_pct(core_str_t s, size_t pos, core_str_t key) {
     return j - pos;
 }
 
-void app_scrub_put(core_buf_t *dst, core_str_t src, core_str_t key) {
-    size_t pos = 0;
-    while (pos < src.len) {
-        size_t m = 0;
-        if (key.len > 0) {
-            m = match_raw(src, pos, key);
-            m = m > 0 ? m : match_pct(src, pos, key);
-        }
-        if (m > 0) {
-            core_buf_put_str(dst, core_str_from_cstr("REDACTED"));
-            pos += m;
-        } else {
-            core_buf_put_char(dst, src.ptr[pos]);
-            pos++;
-        }
-    }
+/* One scrubbing pass: the occurrences (raw or percent-encoded key) are replaced by "REDACTED". */
+typedef struct {
+    core_str_t key;
+    bool pct;
+} pass_t;
+
+static size_t match_at(core_str_t s, size_t pos, const pass_t *p) {
+    return p->pct ? match_pct(s, pos, p->key) : match_raw(s, pos, p->key);
 }
 
-void app_emit(core_buf_t *dst, const core_buf_t *text, core_str_t key) {
-    if (core_buf_overflow(text)) {
-        core_buf_put(dst, NULL, 1);
-        return;
+static bool has_match(core_str_t src, const pass_t *p) {
+    for (size_t i = 0; i < src.len; i++) {
+        if (match_at(src, i, p) > 0) {
+            return true;
+        }
     }
-    app_scrub_put(dst, core_buf_str(text), key);
+    return false;
+}
+
+/* Writes the pass over `src` into dst[0..cap); false when it does not fit. */
+static bool pass_write(core_str_t src, const pass_t *p, char *dst, size_t cap, size_t *n_out) {
+    static const char red[] = "REDACTED";
+    size_t pos = 0;
+    size_t n = 0;
+    while (pos < src.len) {
+        size_t m = match_at(src, pos, p);
+        size_t w = m > 0 ? sizeof red - 1u : 1u;
+        if (cap - n < w) {
+            return false;
+        }
+        if (m > 0) {
+            memcpy(dst + n, red, w);
+            pos += m;
+        } else {
+            dst[n] = src.ptr[pos];
+            pos++;
+        }
+        n += w;
+    }
+    *n_out = n;
+    return true;
+}
+
+/* `res` = the pass over `src`: src itself when nothing matches and a copy is not forced. */
+static bool pass_run(core_str_t src, const pass_t *p, bool force_copy, char *dst, core_str_t *res) {
+    size_t n = 0;
+    if (!force_copy && !has_match(src, p)) {
+        *res = src;
+        return true;
+    }
+    if (!pass_write(src, p, dst, APP_FIN_MAX, &n)) {
+        return false;
+    }
+    res->ptr = dst;
+    res->len = n;
+    return true;
+}
+
+/* The key has a byte that url_pct_encode would change, so the encoded key differs from the key. */
+static bool pct_differs(core_str_t key) {
+    for (size_t i = 0; i < key.len; i++) {
+        if (!unreserved((unsigned char)key.ptr[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool app_scratch_ok(const app_deps_t *d) {
+    return d != NULL && d->scratch != NULL && d->scratch_cap >= APP_SCRATCH_MIN && ((uintptr_t)d->scratch & 15u) == 0;
+}
+
+app_scratch_t *app_scratch(const app_deps_t *d) { return (app_scratch_t *)d->scratch; }
+
+bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str_t *res) {
+    app_scratch_t *sc = app_scratch(d);
+    pass_t p1 = {app_key(d), false};
+    pass_t p2 = {p1.key, true};
+    *res = src;
+    if (p1.key.len > 0 && !pass_run(src, &p1, in_scratch, sc->p1, res)) {
+        return false;
+    }
+    if (p1.key.len > 0 && p1.key.len <= ANNAS_KEY_MAX && pct_differs(p1.key) &&
+        !pass_run(*res, &p2, false, sc->u.p2, res)) {
+        return false;
+    }
+    return res->len <= APP_FIN_MAX;
+}
+
+void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text, bool in_scratch) {
+    core_str_t fin = {NULL, 0};
+    if (app_finalise(d, text, in_scratch, &fin)) {
+        core_buf_put_str(dst, fin);
+    } else {
+        core_buf_put(dst, NULL, 1);
+    }
 }
 
 size_t app_echo_cut(core_str_t in, char *out) {
@@ -140,27 +212,6 @@ void app_put_escaped(core_buf_t *b, core_str_t s) {
             core_buf_put_char(b, (char)c);
         }
     }
-}
-
-app_span_t app_span_of(const core_buf_t *b) {
-    app_span_t sp = {NULL, 0};
-    if (b->cap > b->len + 1u) {
-        sp.p = (unsigned char *)b->data + b->len + 1u;
-        sp.left = b->cap - b->len - 1u;
-    }
-    return sp;
-}
-
-void *app_span_take(app_span_t *sp, size_t n) {
-    size_t pad = (16u - ((uintptr_t)sp->p & 15u)) & 15u;
-    void *r;
-    if (sp->p == NULL || sp->left < pad || sp->left - pad < n) {
-        return NULL;
-    }
-    r = sp->p + pad;
-    sp->p += pad + n;
-    sp->left -= pad + n;
-    return r;
 }
 
 app_op_status_t app_op_run(const app_deps_t *d, const app_op_t *op, app_job_t *job) {
