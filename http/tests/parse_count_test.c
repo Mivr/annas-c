@@ -334,7 +334,7 @@ static void t_header_count(ctest_t *t) {
 }
 
 static void t_header_count_wraps(ctest_t *t) {
-    /* counters that wrap at 2^8 / 2^16 would accept these */
+    /* far past the cap (and past 2^8 / 2^16): a narrow counter that keeps counting would wrap back under it */
     count_case(t, 256 + 50, false, 0, HTTP_E_TOO_MANY_HEADERS);
     count_case(t, 256 + 100, false, 0, HTTP_E_TOO_MANY_HEADERS);
     count_case(t, 65536 + 50, false, 0, HTTP_E_TOO_MANY_HEADERS);

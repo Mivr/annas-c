@@ -74,6 +74,8 @@ static void t_prefix_window(ctest_t *t) {
     memcpy(g_body + at + 1, key, kl);
     CHECK_EQ_I64(t, http_detect_challenge(403, NOTHING, (core_str_t){g_body, sizeof g_body}), HTTP_OK);
     CHECK_EQ_I64(t, http_detect_challenge(503, NOTHING, (core_str_t){g_body, HTTP_CHALLENGE_PREFIX + kl}), HTTP_OK);
+    CHECK_EQ_I64(t, http_detect_challenge(503, NOTHING, (core_str_t){g_body, HTTP_CHALLENGE_PREFIX + 1}), HTTP_OK);
+    CHECK_EQ_I64(t, http_detect_challenge(503, NOTHING, (core_str_t){g_body, HTTP_CHALLENGE_PREFIX + 2}), HTTP_OK);
     /* far beyond the window */
     memset(g_body, 'x', sizeof g_body);
     memcpy(g_body + HTTP_CHALLENGE_PREFIX + 20, key, kl);
