@@ -158,8 +158,8 @@ static void t_mcp_tool_results_are_scrubbed(ctest_t *t) {
 static void t_without_a_configured_key_nothing_is_scrubbed(ctest_t *t) {
     ak_t *a = ak_begin();
     ak_env(a, "ANNAS_SECRET_KEY", NULL);
-    ak_check_reply(t, a, ak_mcp(a, "{\"jsonrpc\":\"2.0\",\"id\":\"" KEY "\",\"method\":\"ping\"}"),
-                   AK_OKR("\"" KEY "\"", "{}"));
+    CHECK_EQ_I64(t, ak_mcp(a, "{\"jsonrpc\":\"2.0\",\"id\":\"" KEY "\",\"method\":\"ping\"}"), APP_MCP_REPLY);
+    CHECK_EQ_STR(t, ak_out(a), AK_OKR("\"" KEY "\"", "{}"));
     a = ak_begin();
     ak_env(a, "ANNAS_SECRET_KEY", "");
     ak_check_reply(t, a, ak_mcp(a, "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"method\":\"ping\"}"), AK_OKR("\"abc\"", "{}"));

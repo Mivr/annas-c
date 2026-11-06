@@ -41,8 +41,8 @@ static void t_malformed_json(ctest_t *t) {
 static void t_embedded_nul_is_a_parse_error(ctest_t *t) {
     ak_t *a = ak_begin();
     static const char with_nul[] = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\0";
-    rejected(t, a, with_nul, sizeof with_nul - 1u, PONG); /* control: the same line without the NUL */
-    rejected(t, a, with_nul, sizeof with_nul, PARSE_ERR);
+    rejected(t, a, with_nul, sizeof with_nul - 2u, PONG); /* control: the same line without the NUL */
+    rejected(t, a, with_nul, sizeof with_nul - 1u, PARSE_ERR);
     static const char mid[] = "{\"jsonrpc\":\"2.0\",\"id\":1,\0\"method\":\"ping\"}";
     rejected(t, a, mid, sizeof mid - 1u, PARSE_ERR);
 }

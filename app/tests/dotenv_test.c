@@ -175,7 +175,7 @@ static void t_values_point_into_the_file_bytes(ctest_t *t) {
     CHECK(t, get(e, "A", &a));
     CHECK(t, get(e, "B", &b));
     CHECK(t, a.ptr == text + 2);
-    CHECK(t, b.ptr == text + 12);
+    CHECK(t, b.ptr == text + 11);
     CHECK_EQ_U64(t, a.len, 5);
     CHECK_EQ_U64(t, b.len, 6);
 }

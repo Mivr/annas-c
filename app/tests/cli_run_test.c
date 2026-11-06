@@ -174,6 +174,7 @@ static void t_timeout_option_is_enforced(ctest_t *t) {
     a->k->read_advance = 1000; /* the API read ends at the deadline of a 1 s timeout */
     a->k->allow_unused = true;
     script(a->k, MD5, "", NULL, "z");
+    a->k->ok_connects = 1; /* the second connect is never made */
     int rc = AK_CLI(a, "download", MD5, "--timeout", "1");
     ak_check_cli(t, a, rc, 5, "", "annas-c: E_TIMEOUT: operation timed out\n");
     ak_check_stream(t, a);

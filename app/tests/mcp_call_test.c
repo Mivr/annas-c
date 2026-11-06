@@ -247,6 +247,7 @@ static void t_timeout(ctest_t *t) {
     a->k->read_advance = 1000;
     a->k->allow_unused = true;
     script(a->k, "", NULL, "x");
+    a->k->ok_connects = 1; /* the second connect is never made */
     ak_check_reply(t, a, call(a, BOOK, "{" HASH ",\"timeout_seconds\":1}"), RESULT_ERR("annas-c: E_TIMEOUT: operation timed out"));
     ak_check_stream(t, a);
     kit_check_fs_untouched(t, a->k);

@@ -315,6 +315,7 @@ static void t_null_arguments(ctest_t *t) {
     app_cmd_t c = cmd_of(APP_CMD_DOWNLOAD);
     int rc = app_cli_run(NULL, ak_deps(a), &a->out, &a->err);
     ak_check_cli(t, a, rc, 1, "", INTERNAL);
+    ak_clear(a);
     rc = app_cli_run(&c, NULL, &a->out, &a->err);
     CHECK_EQ_I64(t, rc, 1);
     CHECK_EQ_STR(t, ak_out(a), "");
