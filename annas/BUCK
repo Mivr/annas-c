@@ -1,0 +1,70 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "annas",
+    srcs = [
+        "src/api.c",
+        "src/config.c",
+        "src/ctx.c",
+        "src/download.c",
+        "src/exchange.c",
+        "src/format.c",
+        "src/msg.c",
+        "src/name.c",
+        "src/redact.c",
+    ],
+    headers = [
+        "annas.h",
+        "src/internal.h",
+    ],
+    deps = [
+        "//core:core",
+        "//fsname:fsname",
+        "//http:http",
+        "//json:json",
+        "//ports:ports",
+        "//url:url",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# Test-only scaffolding (scripted exchanges, post-conditions, fixtures); not part of the product.
+c_library(
+    name = "testkit",
+    srcs = [
+        "tests/fixtures.c",
+        "tests/kit.c",
+    ],
+    headers = ["tests/kit.h"],
+    deps = [
+        ":annas",
+        "//core:core",
+        "//ports:ports",
+        "gate//ctest:ctest",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "config_test", srcs = ["tests/config_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "ctx_test", srcs = ["tests/ctx_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "format_test", srcs = ["tests/format_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "fast_request_test", srcs = ["tests/fast_request_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "fast_ok_test", srcs = ["tests/fast_ok_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "fast_err_test", srcs = ["tests/fast_err_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "fast_net_test", srcs = ["tests/fast_net_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "leak_test", srcs = ["tests/leak_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "download_ok_test", srcs = ["tests/download_ok_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "download_err_test", srcs = ["tests/download_err_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "download_fs_test", srcs = ["tests/download_fs_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "download_big_test", srcs = ["tests/download_big_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
