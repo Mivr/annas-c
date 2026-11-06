@@ -20,8 +20,4 @@ posix_fs_slot_t *pfs_find(posix_fs_t *fs, ports_fs_file_t file);
 /* Close a slot's descriptor once and free the slot; true iff close did not fail (-EINTR counts as success). */
 bool pfs_release(posix_fs_t *fs, posix_fs_slot_t *slot);
 
-/* Port operations implemented in io.c. */
-ports_fs_err_t pfs_op_write(void *ctx, ports_fs_file_t file, const void *buf, size_t len);
-ports_fs_err_t pfs_op_commit(void *ctx, ports_fs_file_t file, core_str_t final_name);
-
 #endif

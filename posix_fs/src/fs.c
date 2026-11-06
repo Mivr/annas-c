@@ -87,8 +87,7 @@ static posix_fs_slot_t *free_slot(posix_fs_t *fs) {
     return NULL;
 }
 
-static ports_fs_err_t op_create_temp(void *ctx, ports_fs_file_t *file) {
-    posix_fs_t *fs = (posix_fs_t *)ctx;
+ports_fs_err_t posix_fs_create_temp(posix_fs_t *fs, ports_fs_file_t *file) {
     if (fs == NULL || file == NULL) {
         return PORTS_FS_E_ARG;
     }
@@ -112,8 +111,7 @@ static ports_fs_err_t op_create_temp(void *ctx, ports_fs_file_t *file) {
     return PORTS_FS_OK;
 }
 
-static ports_fs_err_t op_discard(void *ctx, ports_fs_file_t file) {
-    posix_fs_t *fs = (posix_fs_t *)ctx;
+ports_fs_err_t posix_fs_discard(posix_fs_t *fs, ports_fs_file_t file) {
     posix_fs_slot_t *slot = pfs_find(fs, file);
     if (slot == NULL) {
         return PORTS_FS_E_ARG;
@@ -121,7 +119,23 @@ static ports_fs_err_t op_discard(void *ctx, ports_fs_file_t file) {
     return pfs_release(fs, slot) ? PORTS_FS_OK : PORTS_FS_E_IO;
 }
 
-static const ports_fs_ops_t k_ops = {op_create_temp, pfs_op_write, pfs_op_commit, op_discard};
+static ports_fs_err_t op_create_temp(void *ctx, ports_fs_file_t *file) {
+    return posix_fs_create_temp((posix_fs_t *)ctx, file);
+}
+
+static ports_fs_err_t op_write(void *ctx, ports_fs_file_t file, const void *buf, size_t len) {
+    return posix_fs_write((posix_fs_t *)ctx, file, buf, len);
+}
+
+static ports_fs_err_t op_commit(void *ctx, ports_fs_file_t file, core_str_t final_name) {
+    return posix_fs_commit((posix_fs_t *)ctx, file, final_name);
+}
+
+static ports_fs_err_t op_discard(void *ctx, ports_fs_file_t file) {
+    return posix_fs_discard((posix_fs_t *)ctx, file);
+}
+
+static const ports_fs_ops_t k_ops = {op_create_temp, op_write, op_commit, op_discard};
 
 ports_fs_t posix_fs_port(posix_fs_t *fs) {
     ports_fs_t p = {&k_ops, fs};
