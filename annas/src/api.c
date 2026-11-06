@@ -7,8 +7,8 @@
 static annas_code_t base_invalid(const annas_ctx_t *ctx, annas_error_t *err) {
     size_t n = ctx->cfg->base_len < ANNAS_BASE_MAX - 1u ? ctx->cfg->base_len : ANNAS_BASE_MAX - 1u;
     core_str_t shown = {ctx->cfg->base, n};
-    return msg_fail(err, ANNAS_E_CONFIG, 0, ctx_key(ctx), core_str_from_cstr("ANNAS_BASE_URL is not a valid domain, got: "),
-                    shown, 200);
+    msg_body_t body = {core_str_from_cstr("ANNAS_BASE_URL is not a valid domain, got: "), shown, 200};
+    return msg_fail(err, ANNAS_E_CONFIG, 0, ctx_key(ctx), &body);
 }
 
 static void put_index(core_buf_t *t, const char *name, bool present, uint64_t v) {
@@ -147,8 +147,8 @@ static annas_code_t api_error(const annas_ctx_t *ctx, annas_error_t *err, const 
     if (pick_detail(r, &src, &want) && redact_into(r->ar, src, &detail)) {
         cut = want;
     }
-    return msg_fail(err, ANNAS_E_API, r->status, ctx_key(ctx),
-                    msg_u64(pre, sizeof pre, "", (uint64_t)r->status, ": "), detail, cut);
+    msg_body_t body = {msg_u64(pre, sizeof pre, "", (uint64_t)r->status, ": "), detail, cut};
+    return msg_fail(err, ANNAS_E_API, r->status, ctx_key(ctx), &body);
 }
 
 static annas_code_t api_map(annas_ctx_t *ctx, annas_error_t *err, const ws_t *w, const head_t *h, core_str_t body) {

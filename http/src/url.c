@@ -201,9 +201,26 @@ static bool url_has_bad_byte(core_str_t url) {
     return false;
 }
 
+/* The first of '/', '?', '#' at or after `from`, or the end of the url. */
+static size_t authority_end(core_str_t url, size_t from) {
+    size_t i = from;
+    while (i < url.len && url.ptr[i] != '/' && url.ptr[i] != '?' && url.ptr[i] != '#') {
+        i++;
+    }
+    return i;
+}
+
+/* The first '#' at or after `from`, or the end of the url. */
+static size_t fragment_start(core_str_t url, size_t from) {
+    size_t i = from;
+    while (i < url.len && url.ptr[i] != '#') {
+        i++;
+    }
+    return i;
+}
+
 http_status_t http_url_split(core_str_t url, http_url_t *out) {
     size_t i;
-    size_t end;
     http_url_t u;
     http_status_t st;
     if (out == NULL || (url.ptr == NULL && url.len > 0)) {
@@ -215,10 +232,7 @@ http_status_t http_url_split(core_str_t url, http_url_t *out) {
     if (url.len > HTTP_MAX_URL || url_has_bad_byte(url)) {
         return HTTP_E_URL;
     }
-    i = 8;
-    while (i < url.len && url.ptr[i] != '/' && url.ptr[i] != '?' && url.ptr[i] != '#') {
-        i++;
-    }
+    i = authority_end(url, 8);
     st = http_authority_parse((core_str_t){url.ptr + 8, i - 8}, &u.host, &u.port);
     if (st != HTTP_OK) {
         return st;
@@ -226,11 +240,7 @@ http_status_t http_url_split(core_str_t url, http_url_t *out) {
     if (i >= url.len || url.ptr[i] != '/') {
         return HTTP_E_URL;
     }
-    end = i;
-    while (end < url.len && url.ptr[end] != '#') {
-        end++;
-    }
-    u.target = (core_str_t){url.ptr + i, end - i};
+    u.target = (core_str_t){url.ptr + i, fragment_start(url, i) - i};
     *out = u;
     return HTTP_OK;
 }

@@ -56,8 +56,8 @@ static annas_code_t dl_commit(dl_t *d, ports_fs_file_t f) {
         return ANNAS_OK;
     }
     if (e == PORTS_FS_E_EXISTS) {
-        return msg_fail(d->err, ANNAS_E_FS, 0, ctx_key(c), core_str_from_cstr("file already exists: "), d->name,
-                        MSG_NO_CUT);
+        msg_body_t body = {core_str_from_cstr("file already exists: "), d->name, MSG_NO_CUT};
+        return msg_fail(d->err, ANNAS_E_FS, 0, ctx_key(c), &body);
     }
     return dl_fail(d, ANNAS_E_FS, 0, "could not save the file");
 }
@@ -124,9 +124,9 @@ NOINLINE static annas_code_t dl_reject(dl_t *d, exch_t *x) {
     if (http_detect_challenge(d->head.status, none, prefix) == HTTP_E_BROWSER_CHECK) {
         return dl_browser(d);
     }
-    return msg_fail(d->err, ANNAS_E_HTTP, d->head.status, ctx_key(d->ctx),
-                    msg_u64(pre, sizeof pre, "unexpected HTTP status ", (uint64_t)d->head.status, ""), none,
-                    MSG_NO_CUT);
+    msg_body_t body = {msg_u64(pre, sizeof pre, "unexpected HTTP status ", (uint64_t)d->head.status, ""), none,
+                       MSG_NO_CUT};
+    return msg_fail(d->err, ANNAS_E_HTTP, d->head.status, ctx_key(d->ctx), &body);
 }
 
 static annas_code_t dl_dispatch(dl_t *d, exch_t *x) {

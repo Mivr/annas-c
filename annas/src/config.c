@@ -21,17 +21,17 @@ static core_str_t env_get(ports_env_t env, const char *name) {
 static annas_code_t check_timeout(int64_t seconds, core_str_t key, annas_error_t *err) {
     char buf[96];
     uint64_t mag;
+    msg_body_t body = {{NULL, 0}, {NULL, 0}, MSG_NO_CUT};
     if (seconds >= 0 && seconds <= (int64_t)ANNAS_MAX_TIMEOUT_SECONDS) {
         return ANNAS_OK;
     }
     if (seconds < 0) {
         mag = (uint64_t)0 - (uint64_t)seconds;
-        return msg_fail(err, ANNAS_E_ARG, 0, key, msg_u64(buf, sizeof buf, "timeout must be 0 or more seconds, got: -", mag, ""),
-                        (core_str_t){NULL, 0}, MSG_NO_CUT);
+        body.prefix = msg_u64(buf, sizeof buf, "timeout must be 0 or more seconds, got: -", mag, "");
+    } else {
+        body.prefix = msg_u64(buf, sizeof buf, "timeout must be at most 31536000 seconds, got: ", (uint64_t)seconds, "");
     }
-    return msg_fail(err, ANNAS_E_ARG, 0, key,
-                    msg_u64(buf, sizeof buf, "timeout must be at most 31536000 seconds, got: ", (uint64_t)seconds, ""),
-                    (core_str_t){NULL, 0}, MSG_NO_CUT);
+    return msg_fail(err, ANNAS_E_ARG, 0, key, &body);
 }
 
 /* 2. base: normalised into `base` (NUL-terminated); E_CONFIG echoing the raw value when invalid */
@@ -39,8 +39,8 @@ static annas_code_t check_base(const env_values_t *v, char *base, size_t *base_l
     core_buf_t b;
     if (!core_buf_init(&b, base, ANNAS_BASE_MAX) || url_base_normalize(v->base_raw, &b) != URL_OK ||
         !http_host_valid(core_buf_str(&b))) {
-        return msg_fail(err, ANNAS_E_CONFIG, 0, v->key, core_str_from_cstr("ANNAS_BASE_URL is not a valid domain, got: "),
-                        v->base_raw, 200);
+        msg_body_t body = {core_str_from_cstr("ANNAS_BASE_URL is not a valid domain, got: "), v->base_raw, 200};
+        return msg_fail(err, ANNAS_E_CONFIG, 0, v->key, &body);
     }
     *base_len = core_buf_len(&b);
     return ANNAS_OK;
@@ -59,8 +59,8 @@ static annas_code_t check_download(const env_values_t *v, annas_error_t *err) {
         return msg_text(err, ANNAS_E_CONFIG, 0, v->key, "ANNAS_DOWNLOAD_PATH is longer than 256 bytes");
     }
     if (v->dir.ptr[0] != '/') {
-        return msg_fail(err, ANNAS_E_CONFIG, 0, v->key,
-                        core_str_from_cstr("ANNAS_DOWNLOAD_PATH must be an absolute path, got: "), v->dir, 200);
+        msg_body_t body = {core_str_from_cstr("ANNAS_DOWNLOAD_PATH must be an absolute path, got: "), v->dir, 200};
+        return msg_fail(err, ANNAS_E_CONFIG, 0, v->key, &body);
     }
     return ANNAS_OK;
 }
