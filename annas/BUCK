@@ -73,3 +73,5 @@ c_test(name = "download_fs_test", srcs = ["tests/download_fs_test.c", "tests/fix
 c_test(name = "download_big_test", srcs = ["tests/download_big_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
 c_test(name = "timeout_test", srcs = ["tests/timeout_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "edge_test", srcs = ["tests/edge_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
