@@ -12,23 +12,36 @@
  * sequence is malformed, truncated, overlong, a surrogate, or above U+10FFFF (or n == 0). */
 size_t json_utf8_seq_len(const unsigned char *p, size_t n);
 
+struct json_member;
+
 /* DOM node. Every node keeps its `next` sibling and its `parent` after the parse, so the serialiser can walk
  * the tree without a stack. `items` (containers) is the random-access view used by the accessors. */
 struct json_value {
     json_type_t type;
     bool b;
+    bool red; /* parse-time duplicate-key index colour (object members only) */
     struct json_value *next;
     struct json_value *parent;
     core_str_t key; /* set for object members */
     union {
         core_str_t s; /* string value / number text */
         struct {
-            struct json_value *const *items;
+            union {
+                struct json_value *const *items;
+                struct json_member *tree; /* open object: root of its key index; replaced by items at close */
+            };
             size_t n;
             struct json_value *first;
             struct json_value *last;
         } c;
     } u;
+};
+
+/* An object member: the node plus the two links of the red-black key index used to reject repeated keys in
+ * O(log n) per member. This is the only extra memory of the index: 2 pointers per object member. */
+struct json_member {
+    struct json_value v;
+    struct json_member *kid[2];
 };
 
 /* Parser state, shared by parse.c, num.c and utf8.c. */
@@ -42,8 +55,6 @@ typedef struct {
     size_t elems;
     struct json_value *cur;  /* innermost open container */
     struct json_value *root;
-    core_str_t key;          /* pending object key */
-    bool has_key;
     bool just_opened;
     size_t err;              /* error offset */
 } json_parser_t;

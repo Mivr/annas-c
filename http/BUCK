@@ -46,3 +46,4 @@ c_test(name = "redirect_test", srcs = ["tests/redirect_test.c"], deps = [":http"
 c_test(name = "challenge_test", srcs = ["tests/challenge_test.c"], deps = [":http", "//core:core"])
 
 c_test(name = "live_test", srcs = ["tests/live_test.c"], deps = [":http", "//core:core"])
+c_test(name = "complexity_test", srcs = ["tests/complexity_test.c"], deps = [":http", "//core:core"])

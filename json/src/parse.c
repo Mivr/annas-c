@@ -104,19 +104,8 @@ static json_type_t start_type(unsigned char c) {
     }
 }
 
-/* Allocates a node of type ty under the current container, consuming the pending key. NULL: out of memory. */
-static json_value_t *new_node(json_parser_t *p, json_type_t ty) {
-    json_value_t *v = core_arena_alloc(p->a, sizeof *v, _Alignof(json_value_t));
-    if (v == NULL) {
-        return NULL;
-    }
-    memset(v, 0, sizeof *v);
-    v->type = ty;
+static void link_node(json_parser_t *p, json_value_t *v) {
     v->parent = p->cur;
-    if (p->has_key) {
-        v->key = p->key;
-        p->has_key = false;
-    }
     if (p->cur == NULL) {
         p->root = v;
     } else if (p->cur->u.c.first == NULL) {
@@ -128,10 +117,22 @@ static json_value_t *new_node(json_parser_t *p, json_type_t ty) {
         p->cur->u.c.last = v;
         p->cur->u.c.n++;
     }
+}
+
+/* Allocates a node of type ty under the current container (an array, or the root). NULL: out of memory. */
+static json_value_t *new_node(json_parser_t *p, json_type_t ty) {
+    json_value_t *v = core_arena_alloc(p->a, sizeof *v, _Alignof(json_value_t));
+    if (v == NULL) {
+        return NULL;
+    }
+    memset(v, 0, sizeof *v);
+    v->type = ty;
+    link_node(p, v);
     return v;
 }
 
-static json_err_t value_start(json_parser_t *p) {
+/* `pre` is the already linked member node of an object, or NULL. */
+static json_err_t value_start(json_parser_t *p, json_value_t *pre) {
     json_type_t ty;
     json_value_t *v;
     bool box;
@@ -150,10 +151,11 @@ static json_err_t value_start(json_parser_t *p) {
     if (p->elems >= p->lim.max_elements) {
         return fail(p, JSON_E_LIMIT, p->i);
     }
-    v = new_node(p, ty);
+    v = pre != NULL ? pre : new_node(p, ty);
     if (v == NULL) {
         return nomem(p);
     }
+    v->type = ty;
     p->elems++;
     p->just_opened = box;
     if (!box) {
@@ -165,20 +167,109 @@ static json_err_t value_start(json_parser_t *p) {
     return JSON_OK;
 }
 
-static bool key_taken(const json_parser_t *p, core_str_t key) {
-    const json_value_t *c;
-    for (c = p->cur->u.c.first; c != NULL; c = c->next) {
-        if (core_str_eq(c->key, key)) {
+/* ---- duplicate-key index: a top-down red-black tree over the members of one open object, ordered by
+ * (length, bytes). It lives in the member nodes themselves: no stack, no recursion, O(log n) compares. ---- */
+
+typedef struct json_member member_t;
+
+static int key_cmp(core_str_t a, core_str_t b) {
+    if (a.len != b.len) {
+        return a.len < b.len ? -1 : 1;
+    }
+    return a.len == 0 ? 0 : memcmp(a.ptr, b.ptr, a.len);
+}
+
+static bool is_red(const member_t *m) { return m != NULL && m->v.red; }
+
+static member_t *rot1(member_t *r, int dir) {
+    member_t *s = r->kid[!dir];
+    r->kid[!dir] = s->kid[dir];
+    s->kid[dir] = r;
+    r->v.red = true;
+    s->v.red = false;
+    return s;
+}
+
+static member_t *rot2(member_t *r, int dir) {
+    r->kid[!dir] = rot1(r->kid[!dir], !dir);
+    return rot1(r, dir);
+}
+
+/* Repairs a red-red pair (q under p) found while descending; g is p's parent, t g's parent. */
+static void fix_red(member_t *t, member_t *g, member_t *p, member_t *q, int last) {
+    int d2;
+    if (is_red(q) && is_red(p)) {
+        d2 = t->kid[1] == g;
+        t->kid[d2] = q == p->kid[last] ? rot1(g, !last) : rot2(g, !last);
+    }
+}
+
+/* Descends from head.kid[1] (non-empty), splitting 4-nodes on the way, and attaches `nn` as a red leaf.
+ * false: an equal key is already present. */
+static bool descend(member_t *head, member_t *nn) {
+    member_t *g = NULL, *t = head, *p = NULL, *q = head->kid[1];
+    int dir = 0, last = 0, c;
+    for (;;) {
+        if (q == NULL) {
+            q = nn;
+            p->kid[dir] = nn;
+        } else if (is_red(q->kid[0]) && is_red(q->kid[1])) {
+            q->v.red = true;
+            q->kid[0]->v.red = false;
+            q->kid[1]->v.red = false;
+        }
+        fix_red(t, g, p, q, last);
+        if (q == nn) {
             return true;
         }
+        c = key_cmp(q->v.key, nn->v.key);
+        if (c == 0) {
+            return false;
+        }
+        last = dir;
+        dir = c < 0;
+        t = g != NULL ? g : t;
+        g = p;
+        p = q;
+        q = q->kid[dir];
     }
-    return false;
+}
+
+/* Adds member `nn` (zeroed links) to the index of object `obj`. false: the key is a repeat. */
+static bool index_insert(json_value_t *obj, member_t *nn) {
+    member_t head;
+    bool ok;
+    nn->v.red = true;
+    if (obj->u.c.tree == NULL) {
+        nn->v.red = false;
+        obj->u.c.tree = nn;
+        return true;
+    }
+    memset(&head, 0, sizeof head);
+    head.kid[1] = obj->u.c.tree;
+    ok = descend(&head, nn);
+    obj->u.c.tree = head.kid[1];
+    obj->u.c.tree->v.red = false;
+    return ok;
+}
+
+/* Allocates the member node for `key` under the current object and links it. NULL: out of memory. */
+static member_t *new_member(json_parser_t *p, core_str_t key) {
+    member_t *m = core_arena_alloc(p->a, sizeof *m, _Alignof(member_t));
+    if (m == NULL) {
+        return NULL;
+    }
+    memset(m, 0, sizeof *m);
+    m->v.key = key;
+    link_node(p, &m->v);
+    return m;
 }
 
 static json_err_t member(json_parser_t *p) {
     core_str_t key;
     size_t start;
     json_err_t e;
+    member_t *m;
     skip_ws(p);
     if (p->i >= p->n || p->s[p->i] != '"') {
         return fail(p, JSON_E_SYNTAX, p->i);
@@ -188,7 +279,11 @@ static json_err_t member(json_parser_t *p) {
     if (e != JSON_OK) {
         return e;
     }
-    if (key_taken(p, key)) {
+    m = new_member(p, key);
+    if (m == NULL) {
+        return nomem(p);
+    }
+    if (!index_insert(p->cur, m)) {
         return fail(p, JSON_E_SYNTAX, start);
     }
     skip_ws(p);
@@ -196,9 +291,7 @@ static json_err_t member(json_parser_t *p) {
         return fail(p, JSON_E_SYNTAX, p->i);
     }
     p->i++;
-    p->key = key;
-    p->has_key = true;
-    return value_start(p);
+    return value_start(p, &m->v);
 }
 
 static json_err_t close_container(json_parser_t *p) {
@@ -241,7 +334,7 @@ static json_err_t next_step(json_parser_t *p) {
         }
         p->i++;
     }
-    return p->cur->type == JSON_ARRAY ? value_start(p) : member(p);
+    return p->cur->type == JSON_ARRAY ? value_start(p, NULL) : member(p);
 }
 
 static json_err_t run(core_arena_t *a, core_str_t in, const json_limits_t *lim, const json_value_t **root,
@@ -253,7 +346,7 @@ static json_err_t run(core_arena_t *a, core_str_t in, const json_limits_t *lim, 
     p.n = in.len;
     p.a = a;
     p.lim = *lim;
-    e = value_start(&p);
+    e = value_start(&p, NULL);
     while (e == JSON_OK && p.cur != NULL) {
         e = next_step(&p);
     }

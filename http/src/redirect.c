@@ -40,42 +40,22 @@ static int seg_kind(const merged_t *m, size_t s, size_t e) {
     return 0;
 }
 
-static bool has_dotdot(const merged_t *m) {
-    size_t s = 1;
-    size_t len = m_len(m);
-    for (;;) {
-        size_t e = seg_end(m, s);
-        if (seg_kind(m, s, e) == 2) {
-            return true;
-        }
-        if (e >= len) {
-            return false;
-        }
-        s = e + 1;
-    }
-}
+/* ---- dot-segment removal in O(n log n) time and O(log n) memory -------------------------------------------
+ *
+ * The path is a sequence of items "/seg" (one per '/'); "." is dropped, ".." cancels the nearest earlier kept
+ * normal item (never above the root), every other item (empty ones too) is kept unless cancelled. Looking
+ * from the right, a ".." raises a counter and a normal item either lowers it (cancelled) or, at 0, is kept.
+ * A block of the path acts on that counter as s -> max(s - x, 0) + y, where x is its number of normal items
+ * not cancelled inside it and y its number of ".." that cancel nothing inside it. The path is cut into leaf
+ * blocks of LEAF_CHARS characters; the counter entering each leaf is found by a walk over the implicit binary
+ * tree of blocks, with one saved counter per tree level (LEVELS_MAX). Each leaf is then emitted left to right.
+ * Memory: a fixed bitset per leaf plus LEVELS_MAX counters; no allocation, no recursion. */
 
-/* Does the normal segment starting at `s` survive later ".." segments? Scans the later segments backwards. */
-static bool survives(const merged_t *m, size_t s) {
-    size_t cur_end = m_len(m);
-    unsigned skip = 0;
-    for (;;) {
-        size_t st = cur_end;
-        int kind;
-        while (st > 0 && m_at(m, st - 1) != '/') {
-            st--;
-        }
-        if (st <= s) {
-            return skip == 0;
-        }
-        kind = seg_kind(m, st, cur_end);
-        if (kind == 2) {
-            skip++;
-        } else if (kind == 0 && skip > 0) {
-            skip--;
-        }
-        cur_end = st - 1;
-    }
+#define LEAF_CHARS 512u
+#define LEVELS_MAX 38u /* LEAF_CHARS << LEVELS_MAX = 2^47 bytes: more than any address space can hold */
+
+static bool is_slash(const merged_t *m, size_t i) {
+    return m_at(m, i) == '/';
 }
 
 static void put_range(core_buf_t *out, const merged_t *m, size_t s, size_t e) {
@@ -85,24 +65,135 @@ static void put_range(core_buf_t *out, const merged_t *m, size_t s, size_t e) {
     }
 }
 
-static void emit_path(core_buf_t *out, const merged_t *m) {
-    bool any_dd = has_dotdot(m);
-    size_t len = m_len(m);
-    size_t s = 1;
-    int kind;
-    for (;;) {
-        size_t e = seg_end(m, s);
-        kind = seg_kind(m, s, e);
-        if (kind == 0 && (!any_dd || survives(m, s))) {
-            core_buf_put_char(out, '/');
-            put_range(out, m, s, e);
+/* (x, y) of the items whose '/' lies in [lo, hi): a forward matching of normal items against "..". */
+static void block_xy(const merged_t *m, size_t lo, size_t hi, size_t *x, size_t *y) {
+    size_t i = lo;
+    *x = 0;
+    *y = 0;
+    while (i < hi) {
+        size_t e;
+        int kind;
+        if (!is_slash(m, i)) {
+            i++;
+            continue;
         }
-        if (e >= len) {
-            break;
+        e = seg_end(m, i + 1);
+        kind = seg_kind(m, i + 1, e);
+        if (kind == 0) {
+            (*x)++;
+        } else if (kind == 2 && *x > 0) {
+            (*x)--;
+        } else if (kind == 2) {
+            (*y)++;
         }
-        s = e + 1;
+        i = e;
     }
-    if (kind != 0) {
+}
+
+/* Marks (bit j = j-th item from the right) the kept items of the leaf [lo, hi), given the counter s on its
+ * right. Returns the number of items. */
+static size_t leaf_marks(const merged_t *m, size_t lo, size_t hi, size_t s, unsigned char *bits) {
+    size_t e = seg_end(m, hi);
+    size_t k = 0;
+    size_t i;
+    for (i = hi; i > lo; i--) {
+        int kind;
+        if (!is_slash(m, i - 1)) {
+            continue;
+        }
+        kind = seg_kind(m, i, e);
+        if (kind == 2) {
+            s++;
+        } else if (kind == 0 && s > 0) {
+            s--;
+        } else if (kind == 0) {
+            bits[k / 8u] = (unsigned char)(bits[k / 8u] | (1u << (k % 8u)));
+        }
+        e = i - 1;
+        k++;
+    }
+    return k;
+}
+
+static void leaf_emit(core_buf_t *out, const merged_t *m, size_t lo, size_t hi, size_t s) {
+    unsigned char bits[LEAF_CHARS / 8u] = {0};
+    size_t k, i = lo;
+    k = leaf_marks(m, lo, hi, s, bits);
+    while (i < hi) {
+        size_t e;
+        if (!is_slash(m, i)) {
+            i++;
+            continue;
+        }
+        e = seg_end(m, i + 1);
+        k--;
+        if ((bits[k / 8u] >> (k % 8u)) & 1u) {
+            core_buf_put_char(out, '/');
+            put_range(out, m, i + 1, e);
+        }
+        i = e;
+    }
+}
+
+/* Counter on the left of the right half [mid, hi) of a node, given the counter s on its right. */
+static size_t cross_block(const merged_t *m, size_t mid, size_t hi, size_t s) {
+    size_t x, y;
+    block_xy(m, mid, hi, &x, &y);
+    return (s > x ? s - x : 0) + y;
+}
+
+/* Walks from the node at `level` (block index `idx` at that level, entered with counter s) down its left
+ * spine to the leaf, saving the counter of each node passed. Returns the leaf's counter. */
+static size_t spine(const merged_t *m, size_t *saved, unsigned level, size_t idx, size_t s) {
+    size_t len = m_len(m);
+    for (; level > 0; level--) {
+        size_t half = (size_t)LEAF_CHARS << (level - 1);
+        size_t mid = (idx * 2u + 1u) * half;
+        saved[level] = s;
+        s = cross_block(m, mid, mid + half < len ? mid + half : len, s);
+        idx *= 2u;
+    }
+    return s;
+}
+
+static void emit_leaves(core_buf_t *out, const merged_t *m, unsigned top) {
+    size_t saved[LEVELS_MAX + 1u];
+    size_t len = m_len(m);
+    size_t leaves = (len + LEAF_CHARS - 1u) / LEAF_CHARS;
+    size_t l, s;
+    unsigned t;
+    s = spine(m, saved, top, 0, 0);
+    for (l = 0;; l++) {
+        size_t lo = l * LEAF_CHARS;
+        leaf_emit(out, m, lo, lo + LEAF_CHARS < len ? lo + LEAF_CHARS : len, s);
+        if (l + 1u >= leaves) {
+            return;
+        }
+        t = 0;
+        while ((((l + 1u) >> t) & 1u) == 0u) {
+            t++;
+        }
+        s = spine(m, saved, t, (l + 1u) >> t, saved[t + 1u]);
+    }
+}
+
+static void emit_path(core_buf_t *out, const merged_t *m) {
+    size_t len = m_len(m);
+    size_t leaves = (len + LEAF_CHARS - 1u) / LEAF_CHARS;
+    size_t last = len;
+    unsigned top = 0;
+    while (((size_t)1 << top) < leaves) {
+        top++;
+    }
+    if (top > LEVELS_MAX) {
+        core_buf_put(out, NULL, 1); /* a path of 2^47 bytes or more: report it as an overflow */
+        return;
+    }
+    emit_leaves(out, m, top);
+    while (last > 0 && !is_slash(m, last - 1)) {
+        last--;
+    }
+    if (last > 0 && seg_kind(m, last, len) != 0) {
         core_buf_put_char(out, '/');
     }
 }
