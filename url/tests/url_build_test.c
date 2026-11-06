@@ -255,13 +255,15 @@ static void t_scidb_special_characters(ctest_t *t) {
              "https://annas-archive.gl/scidb?doi=10.1%2Fx%2541%2By");
     scidb_is(t, LIT("10.1/caf\xc3\xa9"), "https://annas-archive.gl/scidb/10.1/caf%C3%A9",
              "https://annas-archive.gl/scidb?doi=10.1%2Fcaf%C3%A9");
+    scidb_is(t, LIT("10.1/x "), "https://annas-archive.gl/scidb/10.1/x%20",   /* only the prefix is checked */
+             "https://annas-archive.gl/scidb?doi=10.1%2Fx%20");
     scidb_is(t, LIT("10.1/a\\b"), "https://annas-archive.gl/scidb/10.1/a%5Cb",
              "https://annas-archive.gl/scidb?doi=10.1%2Fa%5Cb");
 }
 
 static void t_scidb_rejections(ctest_t *t) {
     static const core_str_t bad[] = {
-        {"", 0}, {"11.1/x", 6}, {" 10.1/x", 7}, {"10.1/x ", 7}, {"\n10.1/x", 7}, {"doi:10.1/x", 10},
+        {"", 0}, {"11.1/x", 6}, {" 10.1/x", 7}, {"\n10.1/x", 7}, {"doi:10.1/x", 10},
         {"10", 2}, {"1.0.1/x", 7}, {"10,1/x", 6}, {"/10.1/x", 7}, {"10x1/x", 6}, {"10/1", 4},
         {"https://doi.org/10.1/x", 22}, {"x10.1/y", 7}};
     size_t i;
