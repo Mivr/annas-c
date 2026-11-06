@@ -1,0 +1,26 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "ports",
+    srcs = [
+        "src/clock_fake.c",
+        "src/env_fake.c",
+        "src/fs_fake.c",
+        "src/stream_fake.c",
+    ],
+    headers = [
+        "fakes.h",
+        "ports.h",
+    ],
+    deps = ["//core:core"],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "clock_test", srcs = ["tests/clock_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "env_test", srcs = ["tests/env_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "fs_test", srcs = ["tests/fs_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "fs_inject_test", srcs = ["tests/fs_inject_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "stream_test", srcs = ["tests/stream_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "stream_error_test", srcs = ["tests/stream_error_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "stream_mismatch_test", srcs = ["tests/stream_mismatch_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "stream_init_test", srcs = ["tests/stream_init_test.c"], deps = [":ports", "//core:core"])
