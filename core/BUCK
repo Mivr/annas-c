@@ -1,0 +1,26 @@
+load("@gate//rules:c.bzl", "c_library", "c_test")
+
+c_library(
+    name = "core",
+    srcs = [
+        "src/arena.c",
+        "src/buf.c",
+        "src/parse.c",
+        "src/str.c",
+    ],
+    headers = [
+        "arena.h",
+        "buf.h",
+        "parse.h",
+        "str.h",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+c_test(name = "arena_test", srcs = ["tests/arena_test.c"], deps = [":core"])
+
+c_test(name = "str_test", srcs = ["tests/str_test.c"], deps = [":core"])
+
+c_test(name = "buf_test", srcs = ["tests/buf_test.c"], deps = [":core"])
+
+c_test(name = "parse_test", srcs = ["tests/parse_test.c"], deps = [":core"])
