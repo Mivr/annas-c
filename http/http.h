@@ -227,6 +227,11 @@ bool http_is_redirect_status(int status);
  * is empty; HTTP_E_TOO_MANY_REDIRECTS when r->count >= HTTP_MAX_REDIRECTS; HTTP_E_SCHEME for any other
  * scheme than https (a leading "<letter>[<letter|digit|+|-|.>]*:" before any '/', '?' or '#') ;
  * HTTP_E_URL for "https:" not followed by "//", for a bad byte (<= 0x20, 0x7F, >= 0x80, '\\'), userinfo, bad host or port; HTTP_E_OVERFLOW.
+ * Buffer requirement: `out` is also the working space of the dot-segment removal, and an overflow is sticky
+ * (core_buf_truncate does not clear it). So HTTP_E_OVERFLOW is reported when the merged path, as it is BEFORE
+ * dot-segment removal, does not fit in `out` (after the scheme, host and port already written), even if the
+ * path left after removing "." and ".." would have fitted. `out` must therefore have room for the whole
+ * absolute URL as if no segment were removed.
  * r->count is incremented only when HTTP_OK is returned. `cur` must come from http_url_split. */
 http_status_t http_redirect_resolve(http_redirects_t *r, const http_url_t *cur, int status, core_str_t location,
                                     core_buf_t *out);

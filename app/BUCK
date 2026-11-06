@@ -19,10 +19,12 @@ c_library(
     visibility = ["PUBLIC"],
 )
 
-# Test-only scaffolding (fake-port wiring, output buffers, script helpers); not part of the product.
+# Test-only scaffolding (fake-port wiring, output buffers, script helpers); not part of the product. Only the header
+# lives here: a library may not name the ctest target, so tests/kit.c and tests/annas_kit.c (the annas kit, compiled
+# from its own headers) are listed in the `srcs` of every c_test.
 c_library(
     name = "testkit",
-    srcs = ["tests/kit.c"],
+    srcs = [],
     headers = ["tests/kit.h"],
     deps = [
         ":app",
@@ -30,14 +32,17 @@ c_library(
         "//annas:testkit",
         "//core:core",
         "//ports:ports",
-        "gate//ctest:ctest",
     ],
     visibility = ["PUBLIC"],
 )
 
 c_test(
     name = "parse_test",
-    srcs = ["tests/parse_test.c"],
+    srcs = [
+        "tests/parse_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -50,7 +55,11 @@ c_test(
 
 c_test(
     name = "parse_err_test",
-    srcs = ["tests/parse_err_test.c"],
+    srcs = [
+        "tests/parse_err_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -63,7 +72,11 @@ c_test(
 
 c_test(
     name = "dotenv_test",
-    srcs = ["tests/dotenv_test.c"],
+    srcs = [
+        "tests/dotenv_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -76,7 +89,11 @@ c_test(
 
 c_test(
     name = "cli_run_test",
-    srcs = ["tests/cli_run_test.c"],
+    srcs = [
+        "tests/cli_run_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -89,7 +106,11 @@ c_test(
 
 c_test(
     name = "cli_err_test",
-    srcs = ["tests/cli_err_test.c"],
+    srcs = [
+        "tests/cli_err_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -102,7 +123,11 @@ c_test(
 
 c_test(
     name = "mcp_proto_test",
-    srcs = ["tests/mcp_proto_test.c"],
+    srcs = [
+        "tests/mcp_proto_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -115,7 +140,11 @@ c_test(
 
 c_test(
     name = "mcp_bad_test",
-    srcs = ["tests/mcp_bad_test.c"],
+    srcs = [
+        "tests/mcp_bad_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -129,7 +158,11 @@ c_test(
 
 c_test(
     name = "mcp_args_test",
-    srcs = ["tests/mcp_args_test.c"],
+    srcs = [
+        "tests/mcp_args_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -142,7 +175,11 @@ c_test(
 
 c_test(
     name = "mcp_call_test",
-    srcs = ["tests/mcp_call_test.c"],
+    srcs = [
+        "tests/mcp_call_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -155,7 +192,11 @@ c_test(
 
 c_test(
     name = "leak_test",
-    srcs = ["tests/leak_test.c"],
+    srcs = [
+        "tests/leak_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -168,7 +209,11 @@ c_test(
 
 c_test(
     name = "scratch_test",
-    srcs = ["tests/scratch_test.c"],
+    srcs = [
+        "tests/scratch_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",
@@ -182,7 +227,11 @@ c_test(
 
 c_test(
     name = "scrub_utf8_test",
-    srcs = ["tests/scrub_utf8_test.c"],
+    srcs = [
+        "tests/scrub_utf8_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
     deps = [
         ":app",
         ":testkit",

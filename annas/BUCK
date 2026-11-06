@@ -28,43 +28,46 @@ c_library(
     visibility = ["PUBLIC"],
 )
 
-# Test-only scaffolding (scripted exchanges, post-conditions, fixtures); not part of the product.
+# Test-only scaffolding (scripted exchanges, post-conditions, fixtures); not part of the product. Only headers live
+# here: a library may not name the ctest target, so the kit sources (tests/kit.c and tests/fixtures.c, one-line
+# wrappers of tests/kit_impl.h and tests/fixtures_impl.h, which app/ compiles into its own tests) are listed in the
+# `srcs` of every c_test.
 c_library(
     name = "testkit",
-    srcs = [
-        "tests/fixtures.c",
-        "tests/kit.c",
+    srcs = [],
+    headers = [
+        "tests/fixtures_impl.h",
+        "tests/kit.h",
+        "tests/kit_impl.h",
     ],
-    headers = ["tests/kit.h"],
     deps = [
         ":annas",
         "//core:core",
         "//ports:ports",
-        "gate//ctest:ctest",
     ],
     visibility = ["PUBLIC"],
 )
 
-c_test(name = "config_test", srcs = ["tests/config_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "config_test", srcs = ["tests/config_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "ctx_test", srcs = ["tests/ctx_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "ctx_test", srcs = ["tests/ctx_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "format_test", srcs = ["tests/format_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "format_test", srcs = ["tests/format_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fast_request_test", srcs = ["tests/fast_request_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "fast_request_test", srcs = ["tests/fast_request_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fast_ok_test", srcs = ["tests/fast_ok_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "fast_ok_test", srcs = ["tests/fast_ok_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fast_err_test", srcs = ["tests/fast_err_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "fast_err_test", srcs = ["tests/fast_err_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "fast_net_test", srcs = ["tests/fast_net_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "fast_net_test", srcs = ["tests/fast_net_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "leak_test", srcs = ["tests/leak_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "leak_test", srcs = ["tests/leak_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "download_ok_test", srcs = ["tests/download_ok_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "download_ok_test", srcs = ["tests/download_ok_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "download_err_test", srcs = ["tests/download_err_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "download_err_test", srcs = ["tests/download_err_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "download_fs_test", srcs = ["tests/download_fs_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "download_fs_test", srcs = ["tests/download_fs_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
 
-c_test(name = "download_big_test", srcs = ["tests/download_big_test.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
+c_test(name = "download_big_test", srcs = ["tests/download_big_test.c", "tests/fixtures.c", "tests/kit.c"], deps = [":annas", ":testkit", "//core:core", "//ports:ports"])
