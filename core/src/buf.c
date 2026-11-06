@@ -1,51 +1,75 @@
 #include "core/buf.h"
 
-/* Stubs: the implementation task (A002) replaces these. */
+#include <string.h>
+
 bool core_buf_init(core_buf_t *b, char *storage, size_t cap) {
-    (void)b;
-    (void)storage;
-    (void)cap;
-    return false;
+    if (b == NULL || (storage == NULL && cap > 0)) {
+        return false;
+    }
+    b->data = storage;
+    b->cap = cap;
+    b->len = 0;
+    b->overflow = false;
+    if (cap >= 1) {
+        storage[0] = '\0';
+    }
+    return true;
 }
 
 void core_buf_put(core_buf_t *b, const void *p, size_t n) {
-    (void)b;
-    (void)p;
-    (void)n;
+    if (b == NULL || n == 0 || b->overflow) {
+        return;
+    }
+    if (p == NULL || b->cap == 0 || n > b->cap - 1 - b->len) {
+        b->overflow = true;
+        return;
+    }
+    memcpy(b->data + b->len, p, n);
+    b->len += n;
+    b->data[b->len] = '\0';
 }
 
 void core_buf_put_str(core_buf_t *b, core_str_t s) {
-    (void)b;
-    (void)s;
+    core_buf_put(b, s.ptr, s.len);
 }
 
 void core_buf_put_char(core_buf_t *b, char c) {
-    (void)b;
-    (void)c;
+    core_buf_put(b, &c, 1);
 }
 
 void core_buf_put_u64(core_buf_t *b, uint64_t v) {
-    (void)b;
-    (void)v;
+    char tmp[20];
+    size_t pos = sizeof tmp;
+
+    do {
+        pos--;
+        tmp[pos] = (char)('0' + (int)(v % 10U));
+        v /= 10U;
+    } while (v != 0);
+    core_buf_put(b, tmp + pos, sizeof tmp - pos);
 }
 
 size_t core_buf_len(const core_buf_t *b) {
-    (void)b;
-    return 0;
+    return b == NULL ? 0 : b->len;
 }
 
 bool core_buf_overflow(const core_buf_t *b) {
-    (void)b;
-    return false;
+    return b != NULL && b->overflow;
 }
 
 core_str_t core_buf_str(const core_buf_t *b) {
     core_str_t r = {NULL, 0};
-    (void)b;
+    if (b == NULL || b->cap == 0) {
+        return r;
+    }
+    r.ptr = b->data;
+    r.len = b->len;
     return r;
 }
 
 const char *core_buf_cstr(const core_buf_t *b) {
-    (void)b;
-    return NULL;
+    if (b == NULL || b->cap == 0) {
+        return "";
+    }
+    return b->data;
 }
