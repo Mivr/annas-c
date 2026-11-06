@@ -256,7 +256,8 @@ static void ch_ok(ctest_t *t, const char *size_line, uint64_t bytes) {
 
 static void ch_bad(ctest_t *t, const char *size_line) {
     uint64_t got;
-    CHECK_EQ_I64(t, chunked(size_line, "xxxxxxxxxxxxxxxx\r\n0\r\n\r\n", &got), HTTP_E_CHUNK);
+    /* If the line were accepted as size 1 the message would complete, so only the size line itself can fail. */
+    CHECK_EQ_I64(t, chunked(size_line, "x\r\n0\r\n\r\n", &got), HTTP_E_CHUNK);
 }
 
 static void t_chunk_size_digits(ctest_t *t) {
