@@ -24,3 +24,4 @@ c_test(name = "stream_test", srcs = ["tests/stream_test.c"], deps = [":ports", "
 c_test(name = "stream_error_test", srcs = ["tests/stream_error_test.c"], deps = [":ports", "//core:core"])
 c_test(name = "stream_mismatch_test", srcs = ["tests/stream_mismatch_test.c"], deps = [":ports", "//core:core"])
 c_test(name = "stream_init_test", srcs = ["tests/stream_init_test.c"], deps = [":ports", "//core:core"])
+c_test(name = "survivor_test", srcs = ["tests/survivor_test.c"], deps = [":ports", "//core:core"])

@@ -280,3 +280,23 @@ c_test(
         "gate//third_party/tls_peer:tls_peer",
     ],
 )
+
+c_test(
+    name = "survivor_test",
+    srcs = [
+        "tests/survivor_test.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":testkit",
+        ":wire",
+        "//annas:annas",
+        "//app:app",
+        "//core:core",
+        "//ports:ports",
+        "//posix_clock:posix_clock",
+        "//posix_env:posix_env",
+        "//posix_fs:posix_fs",
+        "//tls_stream:tls_stream",
+    ],
+)
