@@ -30,9 +30,7 @@ static annas_code_t port_fail(const exch_t *x, ports_err_t e, bool connect_faile
 
 annas_code_t exch_open(exch_t *x, core_str_t host, uint16_t port, core_str_t request) {
     annas_ctx_t *c = x->ctx;
-    if (!http_parser_init(x->parser)) {
-        return exch_fail(x, ANNAS_E_PARSE, 0, "malformed HTTP response");
-    }
+    (void)http_parser_init(x->parser); /* false only for NULL; the parser is the workspace's (ws_split) */
     annas_code_t r = op_check(c, x->err);
     if (r != ANNAS_OK) {
         return r;
@@ -65,7 +63,7 @@ static annas_code_t fill(exch_t *x) {
     if (r != ANNAS_OK) {
         return r;
     }
-    size_t n = 0;
+    size_t n; /* set by read on PORTS_OK (ports.h), the only case that uses it */
     ports_err_t e = c->stream.ops->read(c->stream.ctx, x->io, WS_IO_CAP, &n);
     if (e != PORTS_OK) {
         return port_fail(x, e, false);
@@ -78,37 +76,30 @@ static annas_code_t fill(exch_t *x) {
     return ANNAS_OK;
 }
 
+/* The stream ended. exch_event is never called again after END or an error (every caller stops there), so
+ * http_parser_eof gives END or HTTP_E_TRUNCATED here. */
 static annas_code_t at_eof(exch_t *x, http_event_t *ev) {
-    http_status_t st = http_parser_eof(x->parser, ev);
-    if (st == HTTP_E_TRUNCATED) {
+    if (http_parser_eof(x->parser, ev) != HTTP_OK) {
         return exch_fail(x, ANNAS_E_NET, 0, "connection closed before the response was complete");
-    }
-    if (st != HTTP_OK || ev->kind != HTTP_EV_END) {
-        return exch_fail(x, ANNAS_E_PARSE, 0, "malformed HTTP response");
     }
     return ANNAS_OK;
 }
 
 annas_code_t exch_event(exch_t *x, http_event_t *ev) {
-    for (;;) {
-        http_status_t st = http_parser_next(x->parser, &x->pending, ev);
-        if (st != HTTP_OK || (ev->kind == HTTP_EV_END && x->pending.len > 0)) {
-            return exch_fail(x, ANNAS_E_PARSE, 0, "malformed HTTP response");
-        }
-        if (ev->kind != HTTP_EV_NONE) {
-            return ANNAS_OK;
-        }
-        if (x->eof) {
-            return at_eof(x, ev);
-        }
-        annas_code_t r = fill(x);
-        if (r != ANNAS_OK) {
-            return r;
-        }
+    http_status_t st = http_parser_next(x->parser, &x->pending, ev);
+    if (st != HTTP_OK || (ev->kind == HTTP_EV_END && x->pending.len > 0)) {
+        return exch_fail(x, ANNAS_E_PARSE, 0, "malformed HTTP response");
     }
+    if (ev->kind != HTTP_EV_NONE) {
+        return ANNAS_OK;
+    }
+    if (x->eof) {
+        return at_eof(x, ev);
+    }
+    return fill(x); /* no event yet: the caller sees kind NONE and calls again */
 }
 
-void head_note(head_t *h, const http_event_t *ev, char *loc, size_t loc_cap) {
+void head_note(head_t *h, const http_event_t *ev, char *loc) {
     core_str_t none = {NULL, 0};
     if (ev->kind == HTTP_EV_STATUS) {
         h->status = ev->status;
@@ -122,10 +113,9 @@ void head_note(head_t *h, const http_event_t *ev, char *loc, size_t loc_cap) {
         h->challenge = true;
     }
     if (loc != NULL) {
-        size_t n = ev->value.len < loc_cap ? ev->value.len : loc_cap;
-        if (n > 0) {
-            memcpy(loc, ev->value.ptr, n);
-        }
-        h->loc_len = n;
+        /* A header line is at most HTTP_MAX_LINE bytes (the parser refuses longer ones), so is its value, and the
+         * value always points into the parser's line buffer, even when empty. */
+        memcpy(loc, ev->value.ptr, ev->value.len);
+        h->loc_len = ev->value.len;
     }
 }
