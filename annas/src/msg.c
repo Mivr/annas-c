@@ -54,7 +54,7 @@ void msg_ok(annas_error_t *err) {
 }
 
 annas_code_t msg_fail(annas_error_t *err, annas_code_t code, int status, core_str_t key, const msg_body_t *body) {
-    cat_t t = {body->prefix, body->echo, true};
+    cat_t t = {body->prefix, body->echo, true, false};
     sink_t s = {err->message, 0, SIZE_MAX, body->cut};
     finalise(&s, &t, key);
     err->message[s.o] = '\0';

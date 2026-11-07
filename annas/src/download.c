@@ -190,6 +190,16 @@ static annas_code_t dl_resolve(dl_t *d, http_redirects_t *rd, const http_url_t *
     return dl_fail(d, ANNAS_E_HTTP, d->head.status, text);
 }
 
+/* The target of a redirect holds the key: in the host (compared without case), or in the path or query (exactly).
+ * The key class has no ':' or '/', so a key lies wholly inside one of them. */
+static annas_code_t dl_redirect_key(const dl_t *d, const http_url_t *u) {
+    core_str_t key = ctx_key(d->ctx);
+    if (key_in(u->host, key, true) || key_in(u->target, key, false)) {
+        return dl_fail(d, ANNAS_E_HTTP, d->head.status, "redirect contains the key");
+    }
+    return ANNAS_OK;
+}
+
 /* Follows the chain starting at the API's download URL until a response is final. A URL that http_url_split
  * accepts always gives a request (valid host, port and target, far below WS_BODY_CAP), and the buffers are the
  * workspace's own, so every failure of the first check is a URL that is not absolute https. */
@@ -198,6 +208,7 @@ NOINLINE static annas_code_t dl_run(dl_t *d) {
     const annas_fast_result_t *f = &d->w->res->fast;
     http_redirects_t rd = {0};
     unsigned which = 0;
+    bool redirected = false;
     core_str_t cur = {(const char *)bufs[0], f->url_len};
     d->loc = (char *)d->w->rest + WS_LOC_OFF;
     memcpy(bufs[0], f->url, f->url_len);
@@ -208,6 +219,12 @@ NOINLINE static annas_code_t dl_run(dl_t *d) {
         if (http_url_split(cur, &u) != HTTP_OK || !core_buf_init(&rb, (char *)d->w->body, WS_BODY_CAP) ||
             http_request_write(&rb, &u, core_str_from_cstr(ANNAS_VERSION)) != HTTP_OK) {
             return dl_fail(d, ANNAS_E_PARSE, 0, "download URL must be an absolute https URL");
+        }
+        if (redirected) { /* d->head still holds the redirect response that led here */
+            annas_code_t k = dl_redirect_key(d, &u);
+            if (k != ANNAS_OK) {
+                return k;
+            }
         }
         d->follow = false;
         d->head = (head_t){.challenge = false, .has_loc = false, .loc_len = 0};
@@ -222,6 +239,7 @@ NOINLINE static annas_code_t dl_run(dl_t *d) {
             return c;
         }
         cur = core_buf_str(&nb);
+        redirected = true;
     }
 }
 
@@ -229,7 +247,7 @@ NOINLINE static annas_code_t dl_run(dl_t *d) {
 static annas_code_t dl_finish(annas_ctx_t *ctx, annas_error_t *err, const ws_t *w, const annas_request_t *req,
                               const char *md5, annas_download_result_t *out) {
     dl_t d = {.ctx = ctx, .err = err, .w = w, .bytes = 0}; /* loc, head and follow are set per hop by dl_run */
-    name_build(ctx, req, md5, w->res);
+    name_build(ctx, req, md5, w);
     annas_code_t c = dl_run(&d);
     if (c == ANNAS_OK) {
         w->res->bytes = d.bytes;
@@ -249,7 +267,7 @@ annas_code_t annas_download(annas_ctx_t *ctx, const annas_request_t *req, annas_
     if (ctx == NULL || req == NULL || out == NULL) {
         return arg_invalid(err, (core_str_t){NULL, 0});
     }
-    annas_code_t c = check_config(ctx, err, true);
+    annas_code_t c = check_config(ctx->cfg->key, ctx->cfg->download_dir, CFG_DIR, err);
     if (c == ANNAS_OK) {
         c = req_check(ctx, err, req, md5, true);
     }

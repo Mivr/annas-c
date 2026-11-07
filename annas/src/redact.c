@@ -7,65 +7,29 @@ unsigned char cat_at(const cat_t *t, size_t i) {
     if (t->san && (v < 0x20u || v == 0x7fu)) {
         return (unsigned char)'?';
     }
+    if (t->fold) {
+        return (unsigned char)core_ascii_lower((char)v);
+    }
     return v;
 }
 
-static bool unreserved(unsigned char c) {
-    return (c >= (unsigned char)'A' && c <= (unsigned char)'Z') || (c >= (unsigned char)'a' && c <= (unsigned char)'z') ||
-           (c >= (unsigned char)'0' && c <= (unsigned char)'9') || c == (unsigned char)'-' || c == (unsigned char)'.' ||
-           c == (unsigned char)'_' || c == (unsigned char)'~';
-}
-
-static size_t match_raw(const cat_t *t, size_t pos, core_str_t key) {
+/* The key is 16..256 bytes of the URL-unreserved set (annas.h, KEY CLASS), so its percent-encoding is itself and one
+ * raw comparison finds both forms. With `t->fold` the text and the key are compared ASCII case-insensitively. */
+size_t key_match(const cat_t *t, size_t pos, core_str_t key) {
     if (key.len > cat_len(t) - pos) {
         return 0;
     }
     for (size_t i = 0; i < key.len; i++) {
-        if (cat_at(t, pos + i) != (unsigned char)key.ptr[i]) {
+        char k = t->fold ? core_ascii_lower(key.ptr[i]) : key.ptr[i];
+        if (cat_at(t, pos + i) != (unsigned char)k) {
             return 0;
         }
     }
     return key.len;
 }
 
-/* One key byte as it appears percent-encoded; returns its encoded length (1 or 3) or 0 on a mismatch. */
-static size_t match_pct_byte(const cat_t *t, size_t p, size_t total, unsigned char k) {
-    static const char hex[] = "0123456789ABCDEF";
-    if (unreserved(k)) {
-        return (p < total && cat_at(t, p) == k) ? 1u : 0u;
-    }
-    if (total - p < 3u || cat_at(t, p) != (unsigned char)'%') {
-        return 0;
-    }
-    if (cat_at(t, p + 1u) != (unsigned char)hex[k >> 4] || cat_at(t, p + 2u) != (unsigned char)hex[k & 15u]) {
-        return 0;
-    }
-    return 3;
-}
-
-static size_t match_pct(const cat_t *t, size_t pos, core_str_t key) {
-    size_t total = cat_len(t);
-    size_t p = pos;
-    for (size_t i = 0; i < key.len; i++) {
-        size_t n = match_pct_byte(t, p, total, (unsigned char)key.ptr[i]);
-        if (n == 0) {
-            return 0;
-        }
-        p += n;
-    }
-    return p - pos;
-}
-
-size_t key_match(const cat_t *t, size_t pos, core_str_t key) {
-    if (key.len == 0) {
-        return 0;
-    }
-    size_t n = match_raw(t, pos, key);
-    return n != 0 ? n : match_pct(t, pos, key);
-}
-
-bool key_in(core_str_t hay, core_str_t key) {
-    cat_t t = {hay, {NULL, 0}, false};
+bool key_in(core_str_t hay, core_str_t key, bool fold) {
+    cat_t t = {hay, {NULL, 0}, false, fold};
     for (size_t pos = 0; pos < hay.len; pos++) {
         if (key_match(&t, pos, key) != 0) {
             return true;

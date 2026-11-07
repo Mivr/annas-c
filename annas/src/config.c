@@ -8,13 +8,10 @@ typedef struct {
     core_str_t base_raw;
 } env_values_t;
 
-/* The env port sets the value when it returns true (ports.h); otherwise it is {NULL, 0} here. */
+/* The env port sets the value when it returns true (ports.h); a port that does not leaves {NULL, 0}. */
 static core_str_t env_get(ports_env_t env, const char *name) {
-    core_str_t v;
-    if (!env.ops->get(env.ctx, core_str_from_cstr(name), &v)) {
-        v.ptr = NULL;
-        v.len = 0;
-    }
+    core_str_t v = {NULL, 0};
+    (void)env.ops->get(env.ctx, core_str_from_cstr(name), &v);
     return v;
 }
 
@@ -47,25 +44,6 @@ static annas_code_t check_base(const env_values_t *v, char *base, size_t *base_l
     return ANNAS_OK;
 }
 
-/* 3. key and download path, only when downloads are needed */
-static annas_code_t check_download(const env_values_t *v, annas_error_t *err) {
-    if (v->key.len == 0 || v->dir.len == 0) {
-        return msg_text(err, ANNAS_E_CONFIG, 0, v->key,
-                        "ANNAS_SECRET_KEY and ANNAS_DOWNLOAD_PATH environment variables must be set");
-    }
-    if (v->key.len > ANNAS_KEY_MAX) {
-        return msg_text(err, ANNAS_E_CONFIG, 0, v->key, "ANNAS_SECRET_KEY is longer than 256 bytes");
-    }
-    if (v->dir.len > ANNAS_DIR_MAX) {
-        return msg_text(err, ANNAS_E_CONFIG, 0, v->key, "ANNAS_DOWNLOAD_PATH is longer than 256 bytes");
-    }
-    if (v->dir.ptr[0] != '/') {
-        msg_body_t body = {core_str_from_cstr("ANNAS_DOWNLOAD_PATH must be an absolute path, got: "), v->dir, 200};
-        return msg_fail(err, ANNAS_E_CONFIG, 0, v->key, &body);
-    }
-    return ANNAS_OK;
-}
-
 annas_code_t annas_config_load(ports_env_t env, bool need_download, int64_t timeout_seconds, annas_config_t *cfg,
                                annas_error_t *err) {
     env_values_t v;
@@ -86,7 +64,7 @@ annas_code_t annas_config_load(ports_env_t env, bool need_download, int64_t time
         c = check_base(&v, base, &base_len, err);
     }
     if (c == ANNAS_OK && need_download) {
-        c = check_download(&v, err);
+        c = check_config(v.key, v.dir, CFG_DIR | CFG_ABS, err);
     }
     if (c != ANNAS_OK) {
         return c;

@@ -63,7 +63,7 @@ static annas_code_t fill(exch_t *x) {
     if (r != ANNAS_OK) {
         return r;
     }
-    size_t n; /* set by read on PORTS_OK (ports.h), the only case that uses it */
+    size_t n = 0; /* read sets it on PORTS_OK (ports.h); a port that does not reads as end of stream */
     ports_err_t e = c->stream.ops->read(c->stream.ctx, x->io, WS_IO_CAP, &n);
     if (e != PORTS_OK) {
         return port_fail(x, e, false);

@@ -45,8 +45,12 @@ core_str_t ctx_key(const annas_ctx_t *ctx);
 void op_begin(annas_ctx_t *ctx);
 /* ANNAS_E_TIMEOUT (message set) when the clock has reached the deadline, else ANNAS_OK. */
 annas_code_t op_check(annas_ctx_t *ctx, annas_error_t *err);
-/* Key and download directory must be set and within their limits (E_CONFIG). */
-annas_code_t check_config(const annas_ctx_t *ctx, annas_error_t *err, bool need_dir);
+/* E_CONFIG checks of the key and the download directory (annas.h, annas_config_load step 3, in that order). `what`:
+ * CFG_DIR also requires and checks the directory (a, d, h); CFG_ABS (annas_config_load only) also checks that it is
+ * absolute (g). ANNAS_OK when every check passes. */
+#define CFG_DIR 1u
+#define CFG_ABS 2u
+annas_code_t check_config(core_str_t key, core_str_t dir, unsigned what, annas_error_t *err);
 /* E_ARG "invalid argument". */
 annas_code_t arg_invalid(annas_error_t *err, core_str_t key);
 
@@ -69,28 +73,31 @@ annas_code_t msg_text(annas_error_t *err, annas_code_t code, int status, core_st
 core_str_t msg_u64(char *buf, size_t cap, const char *lead, uint64_t n, const char *tail);
 
 /* ---- redaction (redact.c) ---------------------------------------------------------------------------------------- */
-/* A text made of two consecutive slices; with `san` set, bytes < 0x20 and 0x7f read as '?'. */
+/* A text made of two consecutive slices; with `san` set, bytes < 0x20 and 0x7f read as '?'; with `fold` set, ASCII
+ * upper-case letters read as lower case (and key_match folds the key too). */
 typedef struct {
     core_str_t a;
     core_str_t b;
     bool san;
+    bool fold;
 } cat_t;
 
 size_t cat_len(const cat_t *t);
 unsigned char cat_at(const cat_t *t, size_t i);
-/* Length of the key (raw, else percent-encoded) found at `pos` of `t`, or 0. A zero-length key never matches. */
+/* Length of the key found at `pos` of `t`, or 0. The key class makes the key its own percent-encoding. */
 size_t key_match(const cat_t *t, size_t pos, core_str_t key);
-/* True iff `hay` contains the key, raw or percent-encoded. */
-bool key_in(core_str_t hay, core_str_t key);
+/* True iff `hay` contains the key (compared ASCII case-insensitively when `fold`). */
+bool key_in(core_str_t hay, core_str_t key, bool fold);
 /* url_redact_key(src) into the rest of the arena, as *out; *out is left unchanged when it does not fit. */
 void redact_into(core_arena_t *ar, core_str_t src, core_str_t *out);
 
 /* ---- names (name.c) ---------------------------------------------------------------------------------------------- */
 /* True for an absent format or 1..16 ASCII letters/digits. */
 bool name_format_ok(core_str_t format);
-/* Fills res->name, name_len, path, path_len. md5 is the normalised hash. Always fits: the title is cut to
- * FSNAME_MAX_LEN, the format is at most 16 bytes (req_check) and the dir at most ANNAS_DIR_MAX (check_config). */
-void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, annas_download_result_t *res);
+/* Fills w->res->name, name_len, path, path_len (annas.h, NAME: the key is redacted from the title and again from the
+ * complete name). md5 is the normalised hash. `w->rest` is scratch for the redacted title. Always fits: the title is
+ * cut to FSNAME_MAX_LEN, the format is at most 16 bytes (req_check) and the dir at most ANNAS_DIR_MAX (check_config). */
+void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, const ws_t *w);
 /* Argument validation of a request (pointers, md5, and for downloads title/format). md5_out gets the lower-case hash. */
 annas_code_t req_check(const annas_ctx_t *ctx, annas_error_t *err, const annas_request_t *req, char *md5_out,
                        bool for_download);

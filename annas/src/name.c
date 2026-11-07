@@ -1,5 +1,7 @@
 #include "annas/src/internal.h"
 
+#include <string.h>
+
 bool name_format_ok(core_str_t f) {
     if (f.len == 0) {
         return true;
@@ -54,20 +56,58 @@ static void build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
     res->path_len = core_buf_len(&b);
 }
 
-/* The name "<sanitised title or md5>.<format or bin>", then the path. fsname_sanitize returns at least 1 here:
- * `clean` has FSNAME_BUF_SIZE bytes and req_check refused a title {NULL, len > 0}. */
-void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, annas_download_result_t *res) {
+/* `src` with every non-overlapping occurrence of the key (left to right) replaced by "REDACTED", into dst; returns the
+ * length. dst may be src itself: the output never gets ahead of the input, since the key (16 bytes or more,
+ * check_config) is longer than its replacement (8), and the output is never longer than the input. */
+static size_t redact_to(char *dst, core_str_t src, core_str_t key) {
+    static const char word[] = URL_REDACTED;
+    cat_t t = {src, {NULL, 0}, false, false};
+    size_t o = 0;
+    size_t pos = 0;
+    while (pos < src.len) {
+        size_t m = key_match(&t, pos, key);
+        if (m > 0) {
+            memcpy(dst + o, word, sizeof word - 1u);
+            o += sizeof word - 1u;
+            pos += m;
+        } else {
+            dst[o] = src.ptr[pos];
+            o++;
+            pos++;
+        }
+    }
+    return o;
+}
+
+/* The name "<sanitised title or md5>.<format or bin>" with the key redacted twice (annas.h, NAME): first from the
+ * request's title (the md5 when there is none), before fsname_sanitize cuts and cleans it; then from the complete
+ * name. fsname_sanitize returns at least 1 here: `clean` has FSNAME_BUF_SIZE bytes and req_check refused a title
+ * {NULL, len > 0}. A title longer than the scratch is read up to the scratch's size. */
+static size_t name_text(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, const ws_t *w) {
     char clean[FSNAME_BUF_SIZE];
+    core_str_t key = ctx_key(ctx);
     core_str_t title = req->title.len > 0 ? req->title : (core_str_t){md5, URL_MD5_BUF - 1u};
     core_str_t ext = req->format.len > 0 ? req->format : core_str_from_cstr("bin");
-    size_t n = fsname_sanitize(title, clean, sizeof clean);
     core_buf_t b;
-    (void)core_buf_init(&b, res->name, sizeof res->name); /* the result's own array: cannot fail */
+    if (title.len > w->rest_cap) {
+        title.len = w->rest_cap;
+    }
+    title.len = redact_to((char *)w->rest, title, key);
+    title.ptr = (const char *)w->rest;
+    size_t n = fsname_sanitize(title, clean, sizeof clean);
+    (void)core_buf_init(&b, w->res->name, sizeof w->res->name); /* the result's own array: cannot fail */
     core_buf_put(&b, clean, n);
     core_buf_put_char(&b, '.');
     for (size_t i = 0; i < ext.len; i++) {
         core_buf_put_char(&b, core_ascii_lower(ext.ptr[i]));
     }
-    res->name_len = core_buf_len(&b);
+    core_str_t whole = core_buf_str(&b);
+    return redact_to(w->res->name, whole, key);
+}
+
+void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, const ws_t *w) {
+    annas_download_result_t *res = w->res;
+    res->name_len = name_text(ctx, req, md5, w);
+    res->name[res->name_len] = '\0';
     build_path(ctx, res);
 }

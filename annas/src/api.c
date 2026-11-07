@@ -113,10 +113,10 @@ static annas_code_t api_success(const annas_ctx_t *ctx, annas_error_t *err, cons
         return c;
     }
     core_str_t acct = {f->account, f->account_len};
-    if (key_in(url, key)) {
+    if (key_in(url, key, false)) {
         return msg_text(err, ANNAS_E_PARSE, 0, key, "download URL contains the secret key");
     }
-    if (key_in(acct, key)) {
+    if (key_in(acct, key, false)) {
         return msg_text(err, ANNAS_E_PARSE, 0, key, "account info contains the secret key");
     }
     memcpy(f->url, url.ptr, url.len);
@@ -213,7 +213,7 @@ annas_code_t annas_fast_download_url(annas_ctx_t *ctx, const annas_request_t *re
         core_str_t nokey = {NULL, 0};
         return arg_invalid(err, nokey);
     }
-    annas_code_t c = check_config(ctx, err, false);
+    annas_code_t c = check_config(ctx->cfg->key, ctx->cfg->download_dir, 0, err);
     if (c == ANNAS_OK) {
         c = req_check(ctx, err, req, md5, false);
     }
