@@ -24,6 +24,8 @@
 #define WS_BODY_CAP ANNAS_API_BODY_MAX
 #define WS_URL_BUF (HTTP_MAX_URL + 1u)
 #define WS_TARGET_CAP ((size_t)2048)
+/* In `rest` during a download: two URL buffers of WS_URL_BUF bytes, then the Location buffer (HTTP_MAX_LINE). */
+#define WS_LOC_OFF (2u * WS_URL_BUF)
 
 typedef struct {
     http_parser_t *parser;
@@ -36,7 +38,8 @@ typedef struct {
 
 void ws_split(const annas_ctx_t *ctx, ws_t *w);
 
-static inline core_str_t ctx_key(const annas_ctx_t *ctx) { return ctx->cfg->key; }
+/* The configured key (redacted from every message). */
+core_str_t ctx_key(const annas_ctx_t *ctx);
 
 /* Begins an operation: takes the start time and sets the absolute deadline (saturating). */
 void op_begin(annas_ctx_t *ctx);
@@ -79,15 +82,15 @@ unsigned char cat_at(const cat_t *t, size_t i);
 size_t key_match(const cat_t *t, size_t pos, core_str_t key);
 /* True iff `hay` contains the key, raw or percent-encoded. */
 bool key_in(core_str_t hay, core_str_t key);
-/* url_redact_key(src) into the rest of the arena; false when it does not fit. */
-bool redact_into(core_arena_t *ar, core_str_t src, core_str_t *out);
+/* url_redact_key(src) into the rest of the arena, as *out; *out is left unchanged when it does not fit. */
+void redact_into(core_arena_t *ar, core_str_t src, core_str_t *out);
 
 /* ---- names (name.c) ---------------------------------------------------------------------------------------------- */
 /* True for an absent format or 1..16 ASCII letters/digits. */
 bool name_format_ok(core_str_t format);
-/* Fills res->name, name_len, path, path_len. md5 is the normalised hash. */
-annas_code_t name_build(const annas_ctx_t *ctx, annas_error_t *err, const annas_request_t *req, const char *md5,
-                        annas_download_result_t *res);
+/* Fills res->name, name_len, path, path_len. md5 is the normalised hash. Always fits: the title is cut to
+ * FSNAME_MAX_LEN, the format is at most 16 bytes (req_check) and the dir at most ANNAS_DIR_MAX (check_config). */
+void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, annas_download_result_t *res);
 /* Argument validation of a request (pointers, md5, and for downloads title/format). md5_out gets the lower-case hash. */
 annas_code_t req_check(const annas_ctx_t *ctx, annas_error_t *err, const annas_request_t *req, char *md5_out,
                        bool for_download);
@@ -114,11 +117,11 @@ void exch_init(exch_t *x, annas_ctx_t *ctx, annas_error_t *err, const ws_t *w);
 annas_code_t exch_fail(const exch_t *x, annas_code_t code, int status, const char *text);
 /* Checks the deadline, connects, checks again, writes the request. */
 annas_code_t exch_open(exch_t *x, core_str_t host, uint16_t port, core_str_t request);
-/* Next parser event; reads from the stream as needed. END is only returned with no bytes left over. */
+/* Next parser event, or kind NONE after a stream read (call again). END is only returned with no bytes left over. */
 annas_code_t exch_event(exch_t *x, http_event_t *ev);
 void exch_close(exch_t *x);
-/* Records the status and the first Location header (copied to `loc` when non-NULL). */
-void head_note(head_t *h, const http_event_t *ev, char *loc, size_t loc_cap);
+/* Records the status and the first Location header (copied to `loc`, HTTP_MAX_LINE bytes, when non-NULL). */
+void head_note(head_t *h, const http_event_t *ev, char *loc);
 
 /* ---- the API call (api.c) ---------------------------------------------------------------------------------------- */
 annas_code_t api_fetch(annas_ctx_t *ctx, const annas_request_t *req, const char *md5, const ws_t *w,

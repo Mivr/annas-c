@@ -74,16 +74,11 @@ bool key_in(core_str_t hay, core_str_t key) {
     return false;
 }
 
-bool redact_into(core_arena_t *ar, core_str_t src, core_str_t *out) {
+void redact_into(core_arena_t *ar, core_str_t src, core_str_t *out) {
     size_t left = core_arena_capacity(ar) - core_arena_used(ar);
     char *p = core_arena_alloc(ar, left, 1);
     core_buf_t b;
-    if (p == NULL || !core_buf_init(&b, p, left)) {
-        return false;
+    if (p != NULL && core_buf_init(&b, p, left) && url_redact_key(&b, src) == URL_OK) {
+        *out = core_buf_str(&b);
     }
-    if (url_redact_key(&b, src) != URL_OK) {
-        return false;
-    }
-    *out = core_buf_str(&b);
-    return true;
 }
