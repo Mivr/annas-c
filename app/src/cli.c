@@ -2,9 +2,8 @@
 
 #include "core/parse.h"
 
-#define OPT_BIT(o) (1u << (unsigned)(o))
-
-typedef enum { O_NAME = 0, O_FORMAT, O_PATH, O_DOMAIN, O_TIMEOUT } opt_id_t;
+/* Each option id is its own bit in the spec masks and in parse_t.seen. */
+typedef enum { O_NAME = 1, O_FORMAT = 2, O_PATH = 4, O_DOMAIN = 8, O_TIMEOUT = 16 } opt_id_t;
 
 typedef struct {
     const char *name;
@@ -22,10 +21,10 @@ typedef struct {
     unsigned opts;
 } spec_t;
 
-#define DL_OPTS (OPT_BIT(O_PATH) | OPT_BIT(O_DOMAIN) | OPT_BIT(O_TIMEOUT))
+#define DL_OPTS ((unsigned)(O_PATH | O_DOMAIN | O_TIMEOUT))
 
 static const spec_t k_specs[] = {
-    {"download", APP_CMD_DOWNLOAD, 1, DL_OPTS | OPT_BIT(O_NAME) | OPT_BIT(O_FORMAT)},
+    {"download", APP_CMD_DOWNLOAD, 1, DL_OPTS | (unsigned)(O_NAME | O_FORMAT)},
     {"book-download", APP_CMD_DOWNLOAD, 2, 0},
     {"download-url", APP_CMD_DOWNLOAD_URL, 1, DL_OPTS},
     {"mcp", APP_CMD_MCP, 0, 0},
@@ -52,11 +51,10 @@ typedef struct {
 
 static core_str_t cs(const char *c) { return core_str_from_cstr(c); }
 
-static bool problem(problem_t *p, const char *msg, const char *opt, core_str_t arg) {
+static void problem(problem_t *p, const char *msg, const char *opt, core_str_t arg) {
     p->msg = msg;
     p->opt = opt;
     p->arg = arg;
-    return false;
 }
 
 static void usage_text(app_usage_error_t *err, const problem_t *p) {
@@ -77,9 +75,9 @@ static void usage_text(app_usage_error_t *err, const problem_t *p) {
 static bool is_option(core_str_t a) { return a.len > 1u && a.ptr[0] == '-'; }
 
 static bool parse_i64(core_str_t s, int64_t *out) {
-    bool neg = s.len > 0 && s.ptr[0] == '-';
+    bool neg = core_str_starts_with(s, cs("-"));
     core_str_t d = s;
-    uint64_t m = 0;
+    uint64_t m;
     if (neg) {
         d.ptr++;
         d.len--;
@@ -120,7 +118,7 @@ static bool store_opt(parse_t *ps, opt_id_t id, core_str_t v) {
 
 static const optdef_t *find_opt(const spec_t *sp, core_str_t arg) {
     for (size_t i = 0; i < sizeof k_opts / sizeof k_opts[0]; i++) {
-        if ((sp->opts & OPT_BIT(k_opts[i].id)) != 0u && core_str_eq(arg, cs(k_opts[i].name))) {
+        if ((sp->opts & (unsigned)k_opts[i].id) != 0u && core_str_eq(arg, cs(k_opts[i].name))) {
             return &k_opts[i];
         }
     }
@@ -133,28 +131,33 @@ static bool parse_option(parse_t *ps, int *i, problem_t *p) {
     const optdef_t *o = find_opt(ps->spec, arg);
     core_str_t v;
     if (o == NULL) {
-        return problem(p, "unknown option: ", NULL, arg);
+        problem(p, "unknown option: ", NULL, arg);
+        return false;
     }
     if (*i + 1 >= ps->argc) {
-        return problem(p, "option needs a value: ", NULL, arg);
+        problem(p, "option needs a value: ", NULL, arg);
+        return false;
     }
-    if ((ps->seen & OPT_BIT(o->id)) != 0u) {
-        return problem(p, "option given twice: ", NULL, arg);
+    if ((ps->seen & (unsigned)o->id) != 0u) {
+        problem(p, "option given twice: ", NULL, arg);
+        return false;
     }
-    ps->seen |= OPT_BIT(o->id);
+    ps->seen |= (unsigned)o->id;
     (*i)++;
     v = cs(ps->argv[*i]);
     if (!store_opt(ps, o->id, v)) {
-        return problem(p, "invalid value for ", o->name, v);
+        problem(p, "invalid value for ", o->name, v);
+        return false;
     }
     return true;
 }
 
-/* Index of the last '.' of s when it has a byte before and after it, else SIZE_MAX. */
+/* Index of the last '.' of s when it has a byte before and after it, else SIZE_MAX. The first byte is never
+ * looked at: a '.' there has no byte before it. */
 static size_t split_dot(core_str_t s) {
-    for (size_t i = s.len; i > 0; i--) {
+    for (size_t i = s.len; i > 1; i--) {
         if (s.ptr[i - 1u] == '.') {
-            return (i - 1u > 0 && i < s.len) ? i - 1u : SIZE_MAX;
+            return i < s.len ? i - 1u : SIZE_MAX;
         }
     }
     return SIZE_MAX;
@@ -162,12 +165,14 @@ static size_t split_dot(core_str_t s) {
 
 static bool parse_positional(parse_t *ps, core_str_t arg, problem_t *p) {
     if (ps->np >= ps->spec->npos) {
-        return problem(p, "unexpected argument: ", NULL, arg);
+        problem(p, "unexpected argument: ", NULL, arg);
+        return false;
     }
     ps->pos[ps->np] = arg;
     ps->np++;
     if (ps->spec->npos == 2u && ps->np == 2u && split_dot(arg) == SIZE_MAX) {
-        return problem(p, "filename must be <title>.<ext>, got: ", NULL, arg);
+        problem(p, "filename must be <title>.<ext>, got: ", NULL, arg);
+        return false;
     }
     return true;
 }
@@ -176,7 +181,8 @@ static bool finish(parse_t *ps, problem_t *p) {
     app_cmd_t *c = &ps->cmd;
     core_str_t none = {NULL, 0};
     if (ps->np < ps->spec->npos) {
-        return problem(p, ps->np == 0 ? "missing <md5>" : "missing <filename.ext>", NULL, none);
+        problem(p, ps->np == 0 ? "missing <md5>" : "missing <filename.ext>", NULL, none);
+        return false;
     }
     c->kind = ps->spec->kind;
     c->md5 = ps->pos[0]; /* empty for the commands without positionals */
@@ -203,12 +209,14 @@ static bool parse_args(parse_t *ps, problem_t *p) {
     core_str_t none = {NULL, 0};
     core_str_t a1;
     if (ps->argc < 2) {
-        return problem(p, "missing command", NULL, none);
+        problem(p, "missing command", NULL, none);
+        return false;
     }
     a1 = cs(ps->argv[1]);
     ps->spec = find_spec(a1);
     if (ps->spec == NULL) {
-        return problem(p, is_option(a1) ? "unknown option: " : "unknown command: ", NULL, a1);
+        problem(p, is_option(a1) ? "unknown option: " : "unknown command: ", NULL, a1);
+        return false;
     }
     for (int i = 2; i < ps->argc; i++) {
         core_str_t a = cs(ps->argv[i]);
@@ -226,7 +234,7 @@ bool app_cli_parse(int argc, const char *const *argv, app_cmd_t *cmd, app_usage_
     ps.argc = argc;
     ps.argv = argv;
     ps.cmd.timeout_seconds = ANNAS_DEFAULT_TIMEOUT_SECONDS;
-    if (cmd != NULL && argv != NULL && argc >= 1) {
+    if (cmd != NULL && argv != NULL) { /* argc < 2 is "missing command" in parse_args */
         ok = parse_args(&ps, &p);
     }
     if (ok) {
@@ -277,8 +285,6 @@ static app_op_t op_of(const app_cmd_t *cmd) {
     return op;
 }
 
-static bool env_usable(const app_deps_t *d) { return d->env.ops != NULL && d->env.ops->get != NULL; }
-
 /* Builds the outcome text in the scratch, finalises it and appends it with one put: success to out, else errout. */
 static int cli_finish(const app_op_t *op, const app_deps_t *deps, app_op_status_t st, core_buf_t *out,
                       core_buf_t *errout) {
@@ -304,7 +310,7 @@ static int cli_finish(const app_op_t *op, const app_deps_t *deps, app_op_status_
 
 static int cli_op(const app_cmd_t *cmd, const app_deps_t *deps, core_buf_t *out, core_buf_t *errout) {
     app_op_t op = op_of(cmd);
-    if (deps == NULL || !env_usable(deps) || !app_scratch_ok(deps)) {
+    if (!app_scratch_ok(deps)) { /* a missing env port is the INTERNAL status of app_op_run */
         return cli_internal(errout);
     }
     return cli_finish(&op, deps, app_op_run(deps, &op, &app_scratch(deps)->u.w.job), out, errout);
