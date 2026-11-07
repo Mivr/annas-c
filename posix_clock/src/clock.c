@@ -33,8 +33,8 @@ static uint64_t clock_now(void *ctx) {
     if (c == NULL) {
         return 0;
     }
-    int64_t sec; /* stored by the seam whenever it returns 0 (seam contract, posix_clock.h); read only then */
-    int64_t nsec;
+    int64_t sec = 0;
+    int64_t nsec = 0;
     int64_t rc = c->sys->gettime(c->sys_ctx, &sec, &nsec);
     if (rc != 0 || sec < 0 || nsec < 0 || nsec > 999999999) {
         c->faults++;
