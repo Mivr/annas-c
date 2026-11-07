@@ -3,16 +3,15 @@
 
 #include "wire/src/internal.h"
 
-/* One write_out call, repeated while it returns -EINTR: at most WIRE_EINTR_MAX times in a row, then -EINTR is returned. */
+/* One write_out call, repeated while it returns -EINTR: at most WIRE_EINTR_MAX times in a row (then the -EINTR is the result). */
 static int64_t write_retry(const wire_io_t *io, int fd, const char *buf, size_t len)
 {
-    for (int eintr = 0; eintr <= WIRE_EINTR_MAX; eintr++) {
-        int64_t r = io->sys->write_out(io->sys_ctx, fd, buf, len);
-        if (r != -EINTR) {
-            return r;
-        }
-    }
-    return -EINTR;
+    int eintr = 0;
+    int64_t r;
+    do {
+        r = io->sys->write_out(io->sys_ctx, fd, buf, len);
+    } while (r == -EINTR && eintr++ < WIRE_EINTR_MAX);
+    return r;
 }
 
 bool wire_write_all(const wire_io_t *io, int fd, const char *buf, size_t len)

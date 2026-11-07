@@ -21,13 +21,13 @@ static int fail_text(const wire_io_t *io, const char *text, int code)
 }
 
 /* The usage error text with every occurrence of the layered key replaced by "REDACTED". */
-static void put_scrubbed(wire_mem_t *m, bool have_env)
+static void put_scrubbed(wire_mem_t *m)
 {
     core_str_t key;
     core_str_t rest = {m->usage.text, m->usage.len};
     ports_env_t env = app_env_layer_port(&m->layer);
-    bool keyed = have_env && wire_env_get(&env, "ANNAS_SECRET_KEY", &key);
-    while (keyed && key.len > 0u) {
+    (void)wire_env_get(&env, "ANNAS_SECRET_KEY", &key); /* ports_env_t: not found sets {NULL, 0} */
+    while (key.len > 0u) {
         size_t at = core_str_find(rest, key);
         if (at == CORE_NPOS) {
             break;
@@ -43,8 +43,10 @@ static void put_scrubbed(wire_mem_t *m, bool have_env)
 static int usage_failure(wire_mem_t *m, const wire_io_t *io, char *const *envp)
 {
     const char *text = NULL;
-    bool have_env = wire_env_setup(m, io, envp, false, &text) == 0;
-    put_scrubbed(m, have_env);
+    /* Not strict: a bad `.env` is ignored, and posix_env_init / app_env_layer_init only fail for NULL arguments, which
+     * envp (NULL = empty) and wire's own objects are not. */
+    (void)wire_env_setup(m, io, envp, false, &text);
+    put_scrubbed(m);
     return emit(m, io, WIRE_EXIT_CONFIG);
 }
 

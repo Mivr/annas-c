@@ -1,12 +1,12 @@
 /* wire/src/lazyfs.c: the download directory as a ports_fs_t, opened at the first create_temp of the run. */
 #include "wire/src/internal.h"
 
-/* The layered ANNAS_DOWNLOAD_PATH as a C string in l->path; false when it is unset, empty, longer than ANNAS_DIR_MAX
+/* The layered ANNAS_DOWNLOAD_PATH as a C string in l->path; false when it is unset, longer than ANNAS_DIR_MAX
  * or holds a NUL byte. */
 static bool path_load(wire_lazyfs_t *l)
 {
     core_str_t v;
-    bool ok = wire_env_get(&l->env, "ANNAS_DOWNLOAD_PATH", &v) && v.ptr != NULL && v.len > 0 && v.len <= ANNAS_DIR_MAX;
+    bool ok = wire_env_get(&l->env, "ANNAS_DOWNLOAD_PATH", &v) && v.ptr != NULL && v.len <= ANNAS_DIR_MAX;
     size_t i = 0;
     for (; ok && i < v.len; i++) {
         ok = v.ptr[i] != '\0';
@@ -16,7 +16,7 @@ static bool path_load(wire_lazyfs_t *l)
     return ok;
 }
 
-/* Opens the directory once; a directory that is not open leaves l->fs closed, where create_temp is PORTS_FS_E_IO. */
+/* Opens the directory once (an empty path is refused by posix_fs_open_sys); a directory that is not open leaves l->fs closed, where create_temp is PORTS_FS_E_IO. */
 static void lazy_open(wire_lazyfs_t *l)
 {
     if (!l->open) {
