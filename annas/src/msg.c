@@ -7,43 +7,40 @@ typedef struct {
     size_t cut;
 } sink_t;
 
-static bool sink_put(sink_t *s, char c) {
-    if (s->o >= ANNAS_MSG_MAX - 1u) {
-        return false;
-    }
-    if (s->boundary != SIZE_MAX && s->o - s->boundary >= s->cut) {
-        return false;
-    }
-    s->dst[s->o] = c;
-    s->o++;
-    return true;
+/* True once nothing more may be written: ANNAS_MSG_MAX - 1 bytes in all, or `cut` bytes of the echo part. */
+static bool sink_full(const sink_t *s) {
+    return s->o >= ANNAS_MSG_MAX - 1u || (s->boundary != SIZE_MAX && s->o - s->boundary >= s->cut);
 }
 
-static bool put_redacted(sink_t *s) {
+/* Appends c unless the message is full. */
+static void sink_put(sink_t *s, char c) {
+    if (!sink_full(s)) {
+        s->dst[s->o] = c;
+        s->o++;
+    }
+}
+
+static void put_redacted(sink_t *s) {
     static const char word[] = URL_REDACTED;
     for (size_t i = 0; i < sizeof word - 1u; i++) {
-        if (!sink_put(s, word[i])) {
-            return false;
-        }
+        sink_put(s, word[i]);
     }
-    return true;
 }
 
-/* Steps 1 and 2 of the finalisation in one left-to-right pass over the complete text. */
+/* Steps 1 and 2 of the finalisation in one left-to-right pass over the complete text, until the message is full. */
 static void finalise(sink_t *s, const cat_t *t, core_str_t key) {
     size_t total = cat_len(t);
     size_t pos = 0;
-    bool open = true;
-    while (open && pos < total) {
+    while (pos < total && !sink_full(s)) {
         if (pos >= t->a.len && s->boundary == SIZE_MAX) {
             s->boundary = s->o;
         }
         size_t m = key_match(t, pos, key);
         if (m > 0) {
-            open = put_redacted(s);
+            put_redacted(s);
             pos += m;
         } else {
-            open = sink_put(s, (char)cat_at(t, pos));
+            sink_put(s, (char)cat_at(t, pos));
             pos++;
         }
     }
@@ -75,10 +72,7 @@ annas_code_t msg_text(annas_error_t *err, annas_code_t code, int status, core_st
 
 core_str_t msg_u64(char *buf, size_t cap, const char *lead, uint64_t n, const char *tail) {
     core_buf_t b;
-    if (!core_buf_init(&b, buf, cap)) {
-        core_str_t none = {NULL, 0};
-        return none;
-    }
+    (void)core_buf_init(&b, buf, cap); /* every caller passes its own array: cannot fail */
     core_buf_put_str(&b, core_str_from_cstr(lead));
     core_buf_put_u64(&b, n);
     core_buf_put_str(&b, core_str_from_cstr(tail));

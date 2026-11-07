@@ -32,12 +32,14 @@ int annas_exit_code(annas_code_t code) {
     }
 }
 
+/* A length the caller set, kept within its array: at most size - 1 (the bytes before the array's last one). */
+static size_t clamp_len(size_t len, size_t size) { return len < size ? len : size - 1u; }
+
 bool annas_error_line(const annas_error_t *err, core_buf_t *out) {
     if (err == NULL || out == NULL || err->code == ANNAS_OK) {
         return false;
     }
-    size_t n = err->message_len < ANNAS_MSG_MAX - 1u ? err->message_len : ANNAS_MSG_MAX - 1u;
-    core_str_t msg = {err->message, n};
+    core_str_t msg = {err->message, clamp_len(err->message_len, sizeof err->message)};
     core_buf_put_str(out, core_str_from_cstr("annas-c: "));
     core_buf_put_str(out, core_str_from_cstr(annas_code_name(err->code)));
     core_buf_put_str(out, core_str_from_cstr(": "));
@@ -45,10 +47,10 @@ bool annas_error_line(const annas_error_t *err, core_buf_t *out) {
     return !core_buf_overflow(out);
 }
 
-static void put_account(core_buf_t *out, const char *account, size_t len) {
-    if (len > 0) {
+static void put_account(core_buf_t *out, const annas_fast_result_t *r) {
+    if (r->account_len > 0) {
         core_buf_put_str(out, core_str_from_cstr("\nAccount: "));
-        core_buf_put(out, account, len < ANNAS_ACCOUNT_MAX ? len : ANNAS_ACCOUNT_MAX);
+        core_buf_put(out, r->account, clamp_len(r->account_len, sizeof r->account));
     }
 }
 
@@ -57,8 +59,8 @@ bool annas_format_download_url(core_buf_t *out, const annas_fast_result_t *r) {
         return false;
     }
     core_buf_put_str(out, core_str_from_cstr("Download URL: "));
-    core_buf_put(out, r->url, r->url_len < ANNAS_URL_MAX ? r->url_len : ANNAS_URL_MAX);
-    put_account(out, r->account, r->account_len);
+    core_buf_put(out, r->url, clamp_len(r->url_len, sizeof r->url));
+    put_account(out, r);
     return !core_buf_overflow(out);
 }
 
@@ -67,7 +69,7 @@ bool annas_format_downloaded(core_buf_t *out, const annas_download_result_t *r) 
         return false;
     }
     core_buf_put_str(out, core_str_from_cstr("Book downloaded successfully to: "));
-    core_buf_put(out, r->path, r->path_len < ANNAS_PATH_MAX - 1u ? r->path_len : ANNAS_PATH_MAX - 1u);
-    put_account(out, r->fast.account, r->fast.account_len);
+    core_buf_put(out, r->path, clamp_len(r->path_len, sizeof r->path));
+    put_account(out, &r->fast);
     return !core_buf_overflow(out);
 }
