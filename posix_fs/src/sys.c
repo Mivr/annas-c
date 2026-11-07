@@ -6,9 +6,9 @@
 
 #include "posix_fs/src/internal.h"
 
-/* Every function returns the result (>= 0) or -errno. */
+/* Every function returns the result (>= 0) or -errno. POSIX sets errno on every failure of the calls below. */
 static int64_t fail_errno(void) {
-    return errno > 0 ? -(int64_t)errno : -(int64_t)EIO;
+    return -(int64_t)errno;
 }
 
 static int64_t sys_open_dir(void *ctx, const char *path) {
@@ -25,18 +25,12 @@ static int64_t sys_open_tmp(void *ctx, int dir_fd, unsigned mode) {
 
 static int64_t sys_pwrite(void *ctx, int fd, const void *buf, size_t len, uint64_t off) {
     (void)ctx;
-    if (off > (uint64_t)INT64_MAX) {
-        return -(int64_t)EFBIG;
-    }
     ssize_t n = pwrite(fd, buf, len, (off_t)off);
     return n < 0 ? fail_errno() : (int64_t)n;
 }
 
 static int64_t sys_ftruncate(void *ctx, int fd, uint64_t len) {
     (void)ctx;
-    if (len > (uint64_t)INT64_MAX) {
-        return -(int64_t)EFBIG;
-    }
     return ftruncate(fd, (off_t)len) != 0 ? fail_errno() : 0;
 }
 
