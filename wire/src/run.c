@@ -4,11 +4,11 @@
 /* Writes the captured stdout text, then the stderr text; returns `code` or WIRE_EXIT_IO when a write failed. */
 static int emit(wire_mem_t *m, const wire_io_t *io, int code)
 {
-    if (core_buf_len(&m->outb) > 0u && !wire_write_all(io, WIRE_STDOUT, m->out, core_buf_len(&m->outb))) {
+    if (!wire_write_all(io, WIRE_STDOUT, m->out, core_buf_len(&m->outb))) {
         (void)wire_write_all(io, WIRE_STDERR, WIRE_ERR_STDOUT, sizeof WIRE_ERR_STDOUT - 1u); /* best effort */
         return WIRE_EXIT_IO;
     }
-    if (core_buf_len(&m->errb) > 0u && !wire_write_all(io, WIRE_STDERR, m->err, core_buf_len(&m->errb))) {
+    if (!wire_write_all(io, WIRE_STDERR, m->err, core_buf_len(&m->errb))) {
         return WIRE_EXIT_IO;
     }
     return code;
@@ -17,23 +17,17 @@ static int emit(wire_mem_t *m, const wire_io_t *io, int code)
 /* A text for stderr and the exit code that goes with it. */
 static int fail_text(const wire_io_t *io, const char *text, int code)
 {
-    size_t n = 0;
-    while (text[n] != '\0') {
-        n++;
-    }
-    return wire_write_all(io, WIRE_STDERR, text, n) ? code : WIRE_EXIT_IO;
+    return wire_write_all(io, WIRE_STDERR, text, core_str_from_cstr(text).len) ? code : WIRE_EXIT_IO;
 }
 
 /* The usage error text with every occurrence of the layered key replaced by "REDACTED". */
 static void put_scrubbed(wire_mem_t *m, bool have_env)
 {
-    core_str_t key = {NULL, 0};
+    core_str_t key;
     core_str_t rest = {m->usage.text, m->usage.len};
     ports_env_t env = app_env_layer_port(&m->layer);
-    if (have_env && !wire_env_get(&env, "ANNAS_SECRET_KEY", &key)) {
-        key.len = 0;
-    }
-    while (key.len > 0u) {
+    bool keyed = have_env && wire_env_get(&env, "ANNAS_SECRET_KEY", &key);
+    while (keyed && key.len > 0u) {
         size_t at = core_str_find(rest, key);
         if (at == CORE_NPOS) {
             break;
@@ -64,7 +58,7 @@ static int info(wire_mem_t *m, const wire_io_t *io)
 static int run_net(wire_mem_t *m, const wire_io_t *io, char *const *envp)
 {
     const char *text = NULL;
-    size_t ca_len = 0;
+    size_t ca_len;
     int rc = wire_env_setup(m, io, envp, true, &text);
     if (rc == 0) {
         rc = wire_ca_load(m, io, &ca_len, &text);
@@ -109,7 +103,7 @@ static int run_mcp(wire_mem_t *m, const wire_io_t *io, int argc, const char *con
         m->cmd.kind = APP_CMD_MCP;
         return run_net(m, io, envp);
     }
-    if (argc == 2 && argv[1] != NULL && is_info_flag(argv[1])) {
+    if (argc == 2 && is_info_flag(argv[1])) {
         return run_cli(m, io, argc, argv, envp);
     }
     return fail_text(io, WIRE_ERR_MCP_ARGS, WIRE_EXIT_CONFIG);
@@ -126,7 +120,5 @@ int wire_run(wire_mem_t *m, wire_mode_t mode, const wire_io_t *io, int argc, con
     if (!core_buf_init(&m->outb, m->out, sizeof m->out) || !core_buf_init(&m->errb, m->err, sizeof m->err)) {
         return WIRE_EXIT_INTERNAL;
     }
-    m->denv.count = 0;
-    m->cmd.kind = APP_CMD_NONE;
     return mode == WIRE_CLI ? run_cli(m, io, argc, argv, envp) : run_mcp(m, io, argc, argv, envp);
 }
