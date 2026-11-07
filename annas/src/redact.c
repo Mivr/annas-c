@@ -29,7 +29,7 @@ bool key_match(const cat_t *t, size_t pos, core_str_t key) {
 }
 
 bool key_in(core_str_t hay, core_str_t key, bool fold) {
-    cat_t t = {hay, {NULL, 0}, false, fold};
+    cat_t t = {.a = hay, .fold = fold};
     for (size_t pos = 0; pos + key.len <= hay.len; pos++) {
         if (key_match(&t, pos, key)) {
             return true;

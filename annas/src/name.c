@@ -61,7 +61,7 @@ static void build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
  * check_config) is longer than its replacement (8), and the output is never longer than the input. */
 static size_t redact_to(char *dst, core_str_t src, core_str_t key) {
     core_str_t word = core_str_from_cstr(URL_REDACTED);
-    cat_t t = {src, {NULL, 0}, false, false};
+    cat_t t = {.a = src};
     size_t o = 0;
     size_t pos = 0;
     while (pos < src.len) {
