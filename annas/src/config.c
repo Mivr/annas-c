@@ -12,6 +12,9 @@ typedef struct {
 static core_str_t env_get(ports_env_t env, const char *name) {
     core_str_t v = {NULL, 0};
     (void)env.ops->get(env.ctx, core_str_from_cstr(name), &v);
+    if (v.ptr == NULL) { /* a slice without bytes is unset, whatever length the port gave it */
+        v.len = 0;
+    }
     return v;
 }
 
