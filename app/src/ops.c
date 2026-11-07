@@ -48,8 +48,8 @@ typedef struct {
 
 static size_t match_at(core_str_t rest, const pass_t *p) { return p->pct ? match_pct(rest, p->key) : match_raw(rest, p->key); }
 
-/* `res` = the pass over `src`, written to dst[0..APP_FIN_MAX); false when it does not fit. */
-static bool pass_run(core_str_t src, const pass_t *p, char *dst, core_str_t *res) {
+/* Writes the pass over `src` into dst[0..cap); false when it does not fit. */
+static bool pass_write(core_str_t src, const pass_t *p, char *dst, size_t cap, size_t *n_out) {
     static const char red[] = "REDACTED";
     core_str_t rest = src;
     size_t n = 0;
@@ -57,7 +57,7 @@ static bool pass_run(core_str_t src, const pass_t *p, char *dst, core_str_t *res
         size_t m = match_at(rest, p);
         size_t w = m > 0 ? sizeof red - 1u : 1u;
         size_t step = m > 0 ? m : w; /* w is 1 without a match */
-        if (APP_FIN_MAX - n < w) {
+        if (cap - n < w) {
             return false;
         }
         if (m > 0) {
@@ -68,6 +68,30 @@ static bool pass_run(core_str_t src, const pass_t *p, char *dst, core_str_t *res
         rest.ptr += step;
         rest.len -= step;
         n += w;
+    }
+    *n_out = n;
+    return true;
+}
+
+static bool has_match(core_str_t src, const pass_t *p) {
+    for (core_str_t rest = src; rest.len > 0; rest.ptr++, rest.len--) {
+        if (match_at(rest, p) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* `res` = the pass over `src`: src itself, never copied or capped, when nothing matches and a copy is not forced
+ * (a text over APP_FIN_MAX that pass 2 shrinks must still fit). */
+static bool pass_run(core_str_t src, const pass_t *p, bool force_copy, char *dst, core_str_t *res) {
+    size_t n;
+    if (!force_copy && !has_match(src, p)) {
+        *res = src;
+        return true;
+    }
+    if (!pass_write(src, p, dst, APP_FIN_MAX, &n)) {
+        return false;
     }
     res->ptr = dst;
     res->len = n;
@@ -90,7 +114,7 @@ bool app_scratch_ok(const app_deps_t *d) {
 
 app_scratch_t *app_scratch(const app_deps_t *d) { return (app_scratch_t *)d->scratch; }
 
-bool app_finalise(const app_deps_t *d, core_str_t src, core_str_t *res) {
+bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str_t *res) {
     app_scratch_t *sc = app_scratch(d);
     pass_t p1 = {app_key(d), false};
     pass_t p2 = {p1.key, true};
@@ -98,13 +122,13 @@ bool app_finalise(const app_deps_t *d, core_str_t src, core_str_t *res) {
     if (p1.key.len == 0) {
         return src.len <= APP_FIN_MAX; /* nothing to scrub */
     }
-    if (!pass_run(src, &p1, sc->p1, res)) {
+    if (!pass_run(src, &p1, in_scratch, sc->p1, res)) {
         return false;
     }
-    if (p1.key.len <= ANNAS_KEY_MAX && pct_differs(p1.key)) {
-        return pass_run(*res, &p2, sc->u.p2, res); /* reads p1 (or src), writes the area src may live in */
+    if (p1.key.len <= ANNAS_KEY_MAX && pct_differs(p1.key) && !pass_run(*res, &p2, false, sc->u.p2, res)) {
+        return false;
     }
-    return true;
+    return res->len <= APP_FIN_MAX; /* src itself is returned by a pass that finds nothing */
 }
 
 /* A CLI outcome text is below APP_TEXT_CAP bytes and every byte becomes at most 8 (a one-byte key), in each of the
@@ -113,7 +137,7 @@ _Static_assert(8u * (APP_TEXT_CAP - 1u) <= APP_FIN_MAX, "a finalised outcome tex
 
 void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text) {
     core_str_t fin;
-    (void)app_finalise(d, text, &fin);
+    (void)app_finalise(d, text, true, &fin);
     core_buf_put_str(dst, fin);
 }
 
