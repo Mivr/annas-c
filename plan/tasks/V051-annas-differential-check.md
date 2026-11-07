@@ -12,7 +12,7 @@ pass, but they are exactly the tests that left those mutants alive, so they cann
 
 ## Method
 1. In a scratch clone under `/var/tmp/cache/V051/`, build two static libraries of `//annas:annas` and its deps: OLD from
-   `main` (`20cfb8c` or later, without A051) and NEW from `task/A051`. Use the gate's hermetic toolchain through Buck2.
+   `202e20d` (the merge base, so the deps are identical) and NEW from `task/A051`. Use the gate's hermetic toolchain through Buck2.
    Then make the symbols distinct (for example `llvm-objcopy --prefix-symbols=old_`/`new_` on the archives, or `-D` renames
    in the scratch only), so one harness binary links both. Drive both through the same fake ports (stream, clock, env, fs)
    from the repo's test fakes, replaying identical scripted server responses to both.
