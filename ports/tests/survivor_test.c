@@ -196,6 +196,77 @@ static void t_stream_connect_offset_when_a_slice_is_a_prefix(ctest_t *t) {
     CHECK_EQ_U64(t, m.offset, 2);
 }
 
+/* ---- A057: re-initialised fs, preload corners, NULL observers, mismatch without an out ----------------------- */
+
+static void t_fs_reinit_of_a_used_fs_starts_afresh(ctest_t *t) {
+    ports_fake_fs_t *fs_p = &g_fs;
+    ports_fs_file_t f = 0;
+    CHECK(t, ports_fake_fs_init(fs_p, g_store, sizeof g_store));
+    ports_fs_t p = ports_fake_fs_port(fs_p);
+    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) { /* every slot in use */
+        CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
+    }
+    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_E_NOSPACE);
+    CHECK_EQ_U64(t, ports_fake_fs_temp_count(fs_p), PORTS_FAKE_FS_SLOTS);
+    CHECK(t, ports_fake_fs_init(fs_p, g_store, sizeof g_store));
+    CHECK_EQ_U64(t, ports_fake_fs_temp_count(fs_p), 0);
+    CHECK_EQ_U64(t, ports_fake_fs_committed_count(fs_p), 0);
+    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) { /* every slot is free again */
+        f = 0;
+        CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
+        CHECK(t, f != PORTS_FS_NO_FILE);
+    }
+    CHECK_EQ_U64(t, ports_fake_fs_temp_count(fs_p), PORTS_FAKE_FS_SLOTS);
+}
+
+static void t_fs_reinit_restarts_the_call_count(ctest_t *t) {
+    ports_fake_fs_t *fs_p = &g_fs;
+    ports_fs_file_t f = 0;
+    CHECK(t, ports_fake_fs_init(fs_p, g_store, sizeof g_store));
+    ports_fs_t p = ports_fake_fs_port(fs_p);
+    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
+    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
+    CHECK(t, ports_fake_fs_init(fs_p, g_store, sizeof g_store));
+    CHECK(t, ports_fake_fs_inject(fs_p, PORTS_FAKE_FS_OP_CREATE, 1, PORTS_FS_E_IO));
+    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_E_IO); /* the first call since the second init */
+    CHECK_EQ_I64(t, p.ops->create_temp(p.ctx, &f), PORTS_FS_OK);
+}
+
+static void t_fs_preload_content_pointer_and_length(ctest_t *t) {
+    ports_fake_fs_t *fs_p = &g_fs;
+    core_str_t c = {NULL, 99};
+    CHECK(t, ports_fake_fs_init(fs_p, g_store, sizeof g_store));
+    CHECK(t, !ports_fake_fs_preload(fs_p, (core_str_t){"a", 1}, (core_str_t){NULL, 5}));
+    CHECK(t, !ports_fake_fs_preload(fs_p, (core_str_t){"a", 1}, (core_str_t){NULL, 1}));
+    CHECK_EQ_U64(t, ports_fake_fs_committed_count(fs_p), 0);
+    CHECK(t, !ports_fake_fs_find(fs_p, (core_str_t){"a", 1}, NULL));
+    CHECK(t, ports_fake_fs_preload(fs_p, (core_str_t){"a", 1}, (core_str_t){NULL, 0}));
+    CHECK(t, ports_fake_fs_find(fs_p, (core_str_t){"a", 1}, &c));
+    CHECK_EQ_U64(t, c.len, 0);
+    CHECK(t, ports_fake_fs_preload(fs_p, (core_str_t){"b", 1}, (core_str_t){"x", 1}));
+    CHECK(t, ports_fake_fs_find(fs_p, (core_str_t){"b", 1}, &c));
+    CHECK_EQ_U64(t, c.len, 1);
+    CHECK_EQ_I64(t, c.ptr[0], 'x');
+    CHECK_EQ_U64(t, ports_fake_fs_committed_count(fs_p), 2);
+}
+
+static void t_fs_find_and_temp_content_of_null_fs(ctest_t *t) {
+    core_str_t c = {NULL, 0};
+    CHECK(t, !ports_fake_fs_find(NULL, (core_str_t){"a", 1}, &c));
+    CHECK(t, !ports_fake_fs_temp_content(NULL, 1, &c));
+}
+
+static void t_stream_mismatch_without_an_out_pointer(ctest_t *t) {
+    ports_fake_step_t sc[] = {st_connect("h", 1, 1)};
+    ports_fake_stream_t s;
+    CHECK(t, ports_fake_stream_init(&s, sc, COUNT(sc), NULL, 0));
+    CHECK(t, !ports_fake_stream_mismatch(&s, NULL)); /* none yet */
+    ports_stream_t p = ports_fake_stream_port(&s);
+    CHECK_EQ_I64(t, p.ops->connect(p.ctx, (core_str_t){"x", 1}, 1, 0), PORTS_E_NET);
+    CHECK(t, ports_fake_stream_mismatch(&s, NULL));
+    CHECK(t, !ports_fake_stream_mismatch(NULL, NULL));
+}
+
 CTEST_SUITE("survivor",
     {"env_one_byte_name_is_found", t_env_one_byte_name_is_found},
     {"env_only_the_first_count_entries_are_validated", t_env_only_the_first_count_entries_are_validated},
@@ -208,4 +279,9 @@ CTEST_SUITE("survivor",
     {"stream_write_null_buffer_needs_length_zero", t_stream_write_null_buffer_needs_length_zero},
     {"stream_excess_byte_equal_to_the_next_byte_in_memory", t_stream_excess_byte_equal_to_the_next_byte_in_memory},
     {"stream_excess_after_earlier_writes", t_stream_excess_after_earlier_writes},
-    {"stream_connect_offset_when_a_slice_is_a_prefix", t_stream_connect_offset_when_a_slice_is_a_prefix})
+    {"stream_connect_offset_when_a_slice_is_a_prefix", t_stream_connect_offset_when_a_slice_is_a_prefix},
+    {"fs_reinit_of_a_used_fs_starts_afresh", t_fs_reinit_of_a_used_fs_starts_afresh},
+    {"fs_reinit_restarts_the_call_count", t_fs_reinit_restarts_the_call_count},
+    {"fs_preload_content_pointer_and_length", t_fs_preload_content_pointer_and_length},
+    {"fs_find_and_temp_content_of_null_fs", t_fs_find_and_temp_content_of_null_fs},
+    {"stream_mismatch_without_an_out_pointer", t_stream_mismatch_without_an_out_pointer})
