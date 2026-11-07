@@ -239,6 +239,88 @@ static void t_args(ctest_t *t) {
     CHECK_EQ_I64(t, http_request_write(&g_b, &u, LIT("0")), HTTP_OK);
 }
 
+/* A bad slice ({NULL, len > 0}) is HTTP_E_ARG and leaves `out` untouched (content, length, overflow flag). */
+static void expect_arg(ctest_t *t, const http_url_t *u, core_str_t ver) {
+    fresh();
+    core_buf_put(&g_b, "pre", 3);
+    CHECK_EQ_I64(t, http_request_write(&g_b, u, ver), HTTP_E_ARG);
+    CHECK_EQ_STR(t, core_buf_cstr(&g_b), "pre");
+    CHECK_EQ_U64(t, core_buf_len(&g_b), 3);
+    CHECK(t, !core_buf_overflow(&g_b));
+}
+
+static void t_arg_null_host(ctest_t *t) {
+    static const size_t lens[] = {1, 2, 7, 64, 253, 4096, (size_t)1 << 20};
+    size_t i;
+    for (i = 0; i < sizeof lens / sizeof lens[0]; i++) {
+        http_url_t u = mk((core_str_t){NULL, lens[i]}, 443, LIT("/"));
+        expect_arg(t, &u, LIT("0"));
+    }
+    /* ARG wins over every other failure in the other components */
+    {
+        http_url_t u = mk((core_str_t){NULL, 1}, 0, LIT("bad target"));
+        expect_arg(t, &u, LIT(""));
+    }
+}
+
+static void t_arg_null_target(ctest_t *t) {
+    static const size_t lens[] = {1, 2, 7, 64, 4096, (size_t)1 << 20};
+    size_t i;
+    for (i = 0; i < sizeof lens / sizeof lens[0]; i++) {
+        http_url_t u = mk(LIT("h"), 443, (core_str_t){NULL, lens[i]});
+        expect_arg(t, &u, LIT("0"));
+    }
+    {
+        http_url_t u = mk(LIT("-bad"), 0, (core_str_t){NULL, 1});
+        expect_arg(t, &u, LIT(""));
+    }
+}
+
+static void t_arg_null_version(ctest_t *t) {
+    static const size_t lens[] = {1, 2, 7, 64, 65, 4096, (size_t)1 << 20};
+    size_t i;
+    http_url_t u = mk(LIT("h"), 443, LIT("/"));
+    for (i = 0; i < sizeof lens / sizeof lens[0]; i++) {
+        expect_arg(t, &u, (core_str_t){NULL, lens[i]});
+    }
+    u = mk(LIT("-bad"), 0, LIT("no slash"));
+    expect_arg(t, &u, (core_str_t){NULL, 1});
+}
+
+/* {NULL, 0} is an empty slice, not a bad argument: the components are empty/ill-formed -> HTTP_E_INVALID. */
+static void t_empty_null_slices_invalid(ctest_t *t) {
+    http_url_t u = mk((core_str_t){NULL, 0}, 443, LIT("/"));
+    expect_err(t, &u, LIT("0"), HTTP_E_INVALID);
+    u = mk(LIT("h"), 443, (core_str_t){NULL, 0});
+    expect_err(t, &u, LIT("0"), HTTP_E_INVALID);
+    u = mk(LIT("h"), 443, LIT("/"));
+    expect_err(t, &u, (core_str_t){NULL, 0}, HTTP_E_INVALID);
+}
+
+/* Each bad slice is reported as ARG even when the other two slices are valid, and a valid call still works. */
+static void t_arg_bad_next_to_valid(ctest_t *t) {
+    http_url_t u = mk((core_str_t){NULL, 3}, 8443, LIT("/p?q=1"));
+    expect_arg(t, &u, LIT("1.0"));
+    u = mk(LIT("example.org"), 8443, (core_str_t){NULL, 3});
+    expect_arg(t, &u, LIT("1.0"));
+    u = mk(LIT("example.org"), 8443, LIT("/p?q=1"));
+    expect_arg(t, &u, (core_str_t){NULL, 3});
+    expect_req(t, &u, LIT("1.0"),
+               "GET /p?q=1 HTTP/1.1\r\nHost: example.org:8443\r\nUser-Agent: annas-c/1.0\r\n"
+               "Accept: */*\r\nConnection: close\r\n\r\n");
+}
+
+/* Bad slice with an already-overflowed buffer: still ARG, and the flag stays as it was. */
+static void t_arg_keeps_overflow_flag(ctest_t *t) {
+    http_url_t u = mk(LIT("h"), 443, LIT("/"));
+    fresh();
+    core_buf_put(&g_b, NULL, 1);
+    CHECK(t, core_buf_overflow(&g_b));
+    CHECK_EQ_I64(t, http_request_write(&g_b, &u, (core_str_t){NULL, 1}), HTTP_E_ARG);
+    CHECK(t, core_buf_overflow(&g_b));
+    CHECK_EQ_U64(t, core_buf_len(&g_b), 0);
+}
+
 CTEST_SUITE("http_request",
             { "exact_bytes_default_port", t_exact_bytes_default_port },
             { "exact_bytes_other_port", t_exact_bytes_other_port },
@@ -251,4 +333,10 @@ CTEST_SUITE("http_request",
             { "ill_formed_components", t_ill_formed_components },
             { "version_length", t_version_length },
             { "overflow_boundary", t_overflow_boundary },
-            { "args", t_args })
+            { "args", t_args },
+            { "arg_null_host", t_arg_null_host },
+            { "arg_null_target", t_arg_null_target },
+            { "arg_null_version", t_arg_null_version },
+            { "empty_null_slices_invalid", t_empty_null_slices_invalid },
+            { "arg_bad_next_to_valid", t_arg_bad_next_to_valid },
+            { "arg_keeps_overflow_flag", t_arg_keeps_overflow_flag })
