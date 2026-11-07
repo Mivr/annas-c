@@ -225,6 +225,44 @@ static void t_exhaustion_boundaries(ctest_t *t) {
     CHECK_EQ_U64(t, core_arena_used(&a), 16);
 }
 
+static void t_exact_fit_of_remaining_after_previous_alloc(ctest_t *t) {
+    abuf_t ab;
+    core_arena_t a = {0};
+    CHECK(t, core_arena_init(&a, ab.b, 64));
+    CHECK(t, core_arena_alloc(&a, 10, 1) == ab.b);
+    CHECK(t, core_arena_alloc(&a, 55, 1) == NULL);        /* remaining + 1 */
+    CHECK_EQ_U64(t, core_arena_used(&a), 10);
+    CHECK(t, core_arena_alloc(&a, 54, 1) == ab.b + 10);   /* exactly the remaining bytes */
+    CHECK_EQ_U64(t, core_arena_used(&a), 64);
+    CHECK(t, core_arena_alloc(&a, 1, 1) == NULL);
+    CHECK_EQ_U64(t, core_arena_used(&a), 64);
+}
+
+static void t_exact_fit_after_padding(ctest_t *t) {
+    abuf_t ab;
+    core_arena_t a = {0};
+    /* 64-aligned base, cap 32: 1 byte used, then a 16-aligned block needs 15 padding bytes. */
+    CHECK(t, core_arena_init(&a, ab.b, 32));
+    CHECK(t, core_arena_alloc(&a, 1, 1) == ab.b);
+    CHECK(t, core_arena_alloc(&a, 17, 16) == NULL);       /* 15 + 17 = 32 > 31 remaining */
+    CHECK_EQ_U64(t, core_arena_used(&a), 1);
+    CHECK(t, core_arena_alloc(&a, 16, 16) == ab.b + 16);  /* 15 + 16 = 31: fills the arena */
+    CHECK_EQ_U64(t, core_arena_used(&a), 32);
+    CHECK(t, core_arena_alloc(&a, 1, 1) == NULL);
+    CHECK_EQ_U64(t, core_arena_used(&a), 32);
+}
+
+static void t_exact_fit_unaligned_base(ctest_t *t) {
+    abuf_t ab;
+    core_arena_t a = {0};
+    /* base = ab.b + 3, cap 13: a 4-aligned block starts at offset 1 (ab.b + 4), so 12 bytes fit. */
+    CHECK(t, core_arena_init(&a, ab.b + 3, 13));
+    CHECK(t, core_arena_alloc(&a, 13, 4) == NULL);
+    CHECK_EQ_U64(t, core_arena_used(&a), 0);
+    CHECK(t, core_arena_alloc(&a, 12, 4) == ab.b + 4);
+    CHECK_EQ_U64(t, core_arena_used(&a), 13);
+}
+
 static void t_capacity_one_and_filled_one_by_one(ctest_t *t) {
     abuf_t ab;
     core_arena_t a = {0};
@@ -389,6 +427,9 @@ CTEST_SUITE("arena",
     {"zero_initialised_arena_rejects", t_zero_initialised_arena_rejects},
     {"null_arena", t_null_arena},
     {"alloc_sequential_exact_addresses", t_alloc_sequential_exact_addresses},
+    {"exact_fit_of_remaining_after_previous_alloc", t_exact_fit_of_remaining_after_previous_alloc},
+    {"exact_fit_after_padding", t_exact_fit_after_padding},
+    {"exact_fit_unaligned_base", t_exact_fit_unaligned_base},
     {"blocks_do_not_overlap", t_blocks_do_not_overlap},
     {"alignment_of_returned_addresses", t_alignment_of_returned_addresses},
     {"alignment_padding_exact", t_alignment_padding_exact},
