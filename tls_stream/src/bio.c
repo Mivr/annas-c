@@ -8,6 +8,9 @@
 
 #include "tls_stream/src/internal.h"
 
+/* The transport contract names -EAGAIN and -EWOULDBLOCK; they are one value here, so one compare covers both. */
+_Static_assert(EAGAIN == EWOULDBLOCK, "EAGAIN and EWOULDBLOCK are the same errno");
+
 bool tls_deadline_passed(const tls_obj_t *o)
 {
     return o->deadline != 0U && o->cfg.clock.ops->now_ms(o->cfg.clock.ctx) >= o->deadline;
@@ -53,7 +56,7 @@ int tls_bio_send(void *ctx, const unsigned char *buf, size_t len)
         if (n > 0 && (size_t) n <= len) {
             return (int) n;
         }
-        if (n == -(long) EAGAIN || n == -(long) EWOULDBLOCK) {
+        if (n == -(long) EAGAIN) {
             if (wait_ready(o, true) != 0) {
                 return MBEDTLS_ERR_NET_SEND_FAILED;
             }
@@ -77,10 +80,11 @@ int tls_bio_recv(void *ctx, unsigned char *buf, size_t len)
         if (n == 0) {
             return 0; /* transport end of file: mbedTLS reports CONN_EOF, never close_notify */
         }
-        if (n > 0 && (size_t) n <= len) {
+        /* n == 0 returned above, so a negative n (cast to size_t, far above any buffer length) fails this test */
+        if ((size_t) n <= len) {
             return (int) n;
         }
-        if (n == -(long) EAGAIN || n == -(long) EWOULDBLOCK) {
+        if (n == -(long) EAGAIN) {
             if (wait_ready(o, false) != 0) {
                 return MBEDTLS_ERR_NET_RECV_FAILED;
             }

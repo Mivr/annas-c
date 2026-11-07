@@ -76,27 +76,28 @@ static void teardown(tls_obj_t *o)
 
 static ports_err_t load_ca(tls_obj_t *o)
 {
-    int ret = mbedtls_x509_crt_parse(&o->ca, (const unsigned char *) o->cfg.ca_pem.ptr, o->cfg.ca_pem.len);
+    /* the result is not needed: mbedtls_x509_crt_parse() returns non-zero whenever it parsed no certificate, so
+     * "nothing parsed" (version 0) is the whole test below */
+    (void) mbedtls_x509_crt_parse(&o->ca, (const unsigned char *) o->cfg.ca_pem.ptr, o->cfg.ca_pem.len);
     if (o->heap.failed) {
         return PORTS_E_NET;
     }
     /* a block that does not parse is skipped; with no usable certificate at all nothing is trusted */
-    return ret != 0 && o->ca.version == 0 ? PORTS_E_TLS : PORTS_OK;
+    return o->ca.version == 0 ? PORTS_E_TLS : PORTS_OK;
 }
 
 static ports_err_t configure(tls_obj_t *o, core_str_t host)
 {
     char name[HOST_MAX + 1u];
+    int defaults;
     memcpy(name, host.ptr, host.len);
     name[host.len] = '\0';
-    if (mbedtls_ssl_config_defaults(&o->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
-        return PORTS_E_NET;
-    }
+    defaults = mbedtls_ssl_config_defaults(&o->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+                                           MBEDTLS_SSL_PRESET_DEFAULT);
     mbedtls_ssl_conf_authmode(&o->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&o->conf, &o->ca, NULL);
     mbedtls_ssl_conf_rng(&o->conf, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE);
-    if (mbedtls_ssl_setup(&o->ssl, &o->conf) != 0 || mbedtls_ssl_set_hostname(&o->ssl, name) != 0) {
+    if (defaults != 0 || mbedtls_ssl_setup(&o->ssl, &o->conf) != 0 || mbedtls_ssl_set_hostname(&o->ssl, name) != 0) {
         return PORTS_E_NET;
     }
     mbedtls_ssl_set_bio(&o->ssl, o, tls_bio_send, tls_bio_recv, NULL);
@@ -106,9 +107,8 @@ static ports_err_t configure(tls_obj_t *o, core_str_t host)
 static ports_err_t prepare(tls_obj_t *o, core_str_t host)
 {
     ports_err_t e;
-    mbedtls_ssl_init(&o->ssl);
-    mbedtls_ssl_config_init(&o->conf);
-    mbedtls_x509_crt_init(&o->ca);
+    /* no mbedtls_*_init() calls: those only zero their context, and the contexts are already zero (tls_stream_init
+     * zeroes the object, and every teardown() ends in the free functions, which zeroise them) */
     if (mbedtls_platform_set_time(wall_now) != 0 || psa_crypto_init() != PSA_SUCCESS) {
         return PORTS_E_NET;
     }
@@ -250,7 +250,6 @@ static ports_err_t port_close(void *ctx)
         return PORTS_E_CLOSED;
     }
     if (o->sticky == PORTS_OK) {
-        o->cause = PORTS_OK;
         /* best effort: the peer may be gone, and close() still releases everything */
         int rc = mbedtls_ssl_close_notify(&o->ssl);
         (void) rc;
