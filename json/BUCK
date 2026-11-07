@@ -36,3 +36,4 @@ c_test(name = "complexity_test", srcs = ["tests/complexity_test.c"], deps = [":j
 c_test(name = "survivor_input_test", srcs = ["tests/survivor_input_test.c"], deps = [":json", "//core:core"])
 c_test(name = "survivor_keys_test", srcs = ["tests/survivor_keys_test.c"], deps = [":json", "//core:core"])
 c_test(name = "survivor_text_test", srcs = ["tests/survivor_text_test.c"], deps = [":json", "//core:core"])
+c_test(name = "tree_order_test", srcs = ["tests/tree_order_test.c"], deps = [":json", "//core:core"])
