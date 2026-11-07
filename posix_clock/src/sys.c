@@ -8,7 +8,7 @@ static int64_t sys_gettime(void *ctx, int64_t *sec, int64_t *nsec) {
     (void)ctx;
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        return errno > 0 ? -(int64_t)errno : -(int64_t)EINVAL;
+        return -(int64_t)errno; /* POSIX: errno is set when clock_gettime fails */
     }
     *sec = (int64_t)ts.tv_sec;
     *nsec = (int64_t)ts.tv_nsec;

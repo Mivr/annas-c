@@ -74,7 +74,7 @@ const char *core_buf_cstr(const core_buf_t *b) {
 }
 
 void core_buf_truncate(core_buf_t *b, size_t len) {
-    if (b == NULL || b->cap == 0 || len >= b->len) {
+    if (b == NULL || len >= b->len) { /* a buffer without storage has len 0 */
         return;
     }
     b->len = len;
