@@ -23,20 +23,21 @@
  *   So the member key (raw or percent-encoded) never appears in any message or result string, whatever the server,
  *   the title or the environment echoes. The key is sent only in the API request line to the configured base
  *   host; it is never part of any other request (download hosts, redirects). Four rules make that hold:
- *   KEY CLASS.  A key is 1..ANNAS_KEY_MAX bytes, each one of A-Z a-z 0-9 '.' '_' '~' '-' (the URL-unreserved set).
- *     So pct_encode(KEY) == KEY, "raw or percent-encoded" below is one test, and a key never holds a control byte
- *     or a '%' (no lower-case "%1e" form exists). Any other key is ANNAS_E_CONFIG (see annas_config_load and
- *     the operations); the length limit is unchanged.
+ *   KEY CLASS.  A key is 16..ANNAS_KEY_MAX bytes (256), each one of A-Z a-z 0-9 '.' '_' '~' '-' (the URL-unreserved
+ *     set). So pct_encode(KEY) == KEY, "raw or percent-encoded" below is one test, and a key never holds a
+ *     control byte or a '%' (no lower-case "%1e" form exists). A key of 1..15 bytes, a key longer than 256 bytes
+ *     and a key with any other byte are each ANNAS_E_CONFIG with their own message (see annas_config_load and
+ *     the operations). A key that contains the text "REDACTED" (case-sensitive) is ANNAS_E_CONFIG too. Together
+ *     these make redaction final: a replacement ("REDACTED", 8 bytes) is shorter than any key and holds no key,
+ *     and two adjacent replacements, or one next to other text, cannot spell a key.
  *   NAME.  annas_download redacts twice, each time with the rule of step 2 above (every non-overlapping occurrence,
  *     left to right, of KEY, then of pct_encode(KEY) if that differs from KEY, which the key class rules out,
  *     becomes the 8 bytes "REDACTED"). First the request's title, before fsname_sanitize cuts and cleans it (at
  *     most 200 bytes). Then the COMPLETE final name, "<sanitised title or md5>.<format or bin>", after
  *     sanitising and after the md5 and the format are joined in. So whatever sanitising (a title "a/b" becomes
  *     "a_b"), the md5, the format or the default "bin" produce, neither the commit name nor the result `name` and
- *     `path` nor annas_format_downloaded contains the key. The second pass may lengthen the name: a name longer
- *     than ANNAS_NAME_MAX-1 bytes is cut to ANNAS_NAME_MAX-1 bytes (a cut cannot create the key). The one
- *     exception to "never contains the key" is a key that is itself a substring of the text "REDACTED" (such
- *     as "E" or "RED"): the replacement text then holds it, and redaction cannot remove it.
+ *     `path` nor annas_format_downloaded contains the key. Each replacement (8 bytes) is shorter than the key it
+ *     replaces (16 or more), so neither pass lengthens a text and the name always fits ANNAS_NAME_MAX.
  *   DOWNLOAD PATH.  A download directory that contains KEY is ANNAS_E_CONFIG (config check, no port call).
  *   REDIRECT.  A redirect whose resolved target contains KEY is ANNAS_E_HTTP; the host part is compared ASCII
  *     case-insensitively (host names are case-insensitive), the port, path and query exactly. No connection is
@@ -62,8 +63,10 @@
  *             "ANNAS_SECRET_KEY and ANNAS_DOWNLOAD_PATH environment variables must be set"
  *             "ANNAS_DOWNLOAD_PATH must be an absolute path, got: <path>"
  *             "ANNAS_SECRET_KEY is longer than 256 bytes"   "ANNAS_DOWNLOAD_PATH is longer than 256 bytes"
+ *             "ANNAS_SECRET_KEY must be 16 to 256 bytes"         (a key of 1..15 bytes; the text never echoes the key)
  *             "ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -"   (a byte outside
- *                          the key class, key of 1..256 bytes; the text never echoes the key)
+ *                          the key class, key of 16..256 bytes; the text never echoes the key)
+ *             "ANNAS_SECRET_KEY must not contain REDACTED"   (a key of 16..256 bytes in the class that holds that text)
  *             "ANNAS_DOWNLOAD_PATH contains the key"       (the path contains the key, raw or percent-encoded;
  *                          the text never echoes the path)
  *             (echoed values are cut to their first 200 bytes after the common finalisation)
@@ -168,13 +171,17 @@ typedef struct {
  *      also satisfy http_host_valid -> else E_CONFIG (message echoes the RAW value).
  *   3. only when `need_download`, in this order, the first failure being E_CONFIG:
  *      a. key or download path unset or empty (the combined message);
- *      b. key longer than ANNAS_KEY_MAX;  c. path longer than ANNAS_DIR_MAX;
- *      d. key with a byte outside the key class (see Messages above): the "may only contain" message;
- *      e. path not starting with '/' (the absolute-path message; a key in the echoed path is redacted);
- *      f. path containing the key, raw or percent-encoded: the "contains the key" message.
+ *      b. key longer than ANNAS_KEY_MAX;  c. key shorter than 16 bytes (the "must be 16 to 256 bytes" message);
+ *      d. path longer than ANNAS_DIR_MAX;
+ *      e. key with a byte outside the key class (see Messages above): the "may only contain" message;
+ *      f. key containing the text "REDACTED": the "must not contain REDACTED" message;
+ *      g. path not starting with '/' (the absolute-path message; a key in the echoed path is redacted);
+ *      h. path containing the key, raw or percent-encoded: the "contains the key" message.
+ *      (So a key of 1..15 bytes that also holds a bad byte gets the "must be" message, and a key longer than 256
+ *      bytes that also holds a bad byte gets the "longer than" message; a bad byte beats "REDACTED".)
  * When !need_download the key and path are copied if set (no checks at all) and never required.
  * The key is known from the env even when an earlier check fails, so it is redacted from that message.
- * The operations repeat checks a-d and f on the key and directory they are given (an annas_config_t not made by
+ * The operations repeat checks a-f and h on the key and directory they are given (an annas_config_t not made by
  * this function is checked too), see below.
  * `err` and `cfg` must not be NULL (E_ARG "invalid argument" if err is non-NULL and cfg is). */
 annas_code_t annas_config_load(ports_env_t env, bool need_download, int64_t timeout_seconds, annas_config_t *cfg,
@@ -240,9 +247,9 @@ typedef struct {
 } annas_download_result_t;
 
 /* The API call. Order of work: (1) config: key (and for annas_download the download dir) must be non-empty, else
- * E_CONFIG with the combined message; then, in the order of annas_config_load, the key length (b), for
- * annas_download the dir length (c), the key class (d) and for annas_download a dir that contains the key (f), each
- * its E_CONFIG message (the absolute-path check (e) stays annas_config_load's); (2) request validation -> E_ARG: the fast call validates only the md5 and
+ * E_CONFIG with the combined message; then, in the order of annas_config_load, the key length (b, c), for
+ * annas_download the dir length (d), the key class (e), the key without "REDACTED" (f) and for annas_download a dir
+ * that contains the key (h), each its E_CONFIG message (the absolute-path check (g) stays annas_config_load's); (2) request validation -> E_ARG: the fast call validates only the md5 and
  * ignores title and format (annas_download also validates format, md5 first); (1) and (2) happen before ANY port
  * call. (3) connect(base, 443, deadline); write
  *   GET /dyn/api/fast_download.json?md5=<md5>&key=<pct_encode(key)>[&path_index=<n>][&domain_index=<n>] HTTP/1.1

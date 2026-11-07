@@ -32,9 +32,9 @@ static void t_json_escaped_key_is_decoded_before_redaction(ctest_t *t) {
 
 static void t_percent_encoded_key_is_redacted(ctest_t *t) {
     kit_t *k = kit_begin();
-    kit_set_key(k, "fake-key.1_~"); /* pct_encode(key) == key: the raw bytes are redacted, an escaped spelling is not */
-    kit_check_err(t, k, api(k, 400, "{\"error\":\"bad fake-key.1_~ and fake%2Dkey.1_~ and fake-key.1_~\"}"), ANNAS_E_API,
-                  400, "400: bad REDACTED and fake%2Dkey.1_~ and REDACTED");
+    kit_set_key(k, "fake-key.1_~abcd"); /* pct_encode(key) == key: the raw bytes are redacted, an escaped spelling is not */
+    kit_check_err(t, k, api(k, 400, "{\"error\":\"bad fake-key.1_~abcd and fake%2Dkey.1_~abcd and fake-key.1_~abcd\"}"),
+                  ANNAS_E_API, 400, "400: bad REDACTED and fake%2Dkey.1_~abcd and REDACTED");
 }
 
 static void t_key_parameters_are_redacted_in_server_text(ctest_t *t) {
@@ -84,8 +84,8 @@ static void t_result_containing_the_key_is_refused(ctest_t *t) {
     kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f?k=" KIT_KEY "\"}"), ANNAS_E_PARSE, 0,
                   "download URL contains the secret key");
     k = kit_begin();
-    kit_set_key(k, "fake-key.1_~");
-    kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f?k=fake-key.1_~\"}"), ANNAS_E_PARSE, 0,
+    kit_set_key(k, "fake-key.1_~abcd");
+    kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f?k=fake-key.1_~abcd\"}"), ANNAS_E_PARSE, 0,
                   "download URL contains the secret key");
     k = kit_begin();
     kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f\",\"account_fast_download_info\":{\"k\":\"" KIT_KEY "\"}}"),

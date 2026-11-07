@@ -7,6 +7,12 @@
 #include "annas/tests/kit.h"
 #include "ctest/ctest.h"
 
+#define ZK "zq9-0123456789ab" /* fake keys of 16 bytes or more */
+#define K7 "7777777777777777"
+#define KA16 "aaaaaaaaaaaaaaaa"
+#define KAB "abababababababab"
+#define AK "AbCdEfGhIjKlMnOp"
+#define KQ "zqzqzqzqzqzqzqzq"
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 #define BROWSER "the site requires browser verification; use download-by-md5 with a hash found in a browser"
 #define REDIR "redirect contains the key"
@@ -53,27 +59,28 @@ typedef struct {
 
 static void t_title_containing_the_key_is_redacted(ctest_t *t) {
     static const tcase_t c[] = {
-        {"zq9", "zq9", "REDACTED.pdf"},
-        {"zq9", "zq9 book", "REDACTED book.pdf"},
-        {"zq9", "my zq9", "my REDACTED.pdf"},
-        {"zq9", "my zq9 book", "my REDACTED book.pdf"},
-        {"zq9", "zq9zq9", "REDACTEDREDACTED.pdf"},
-        {"zq9", "zq9 and zq9", "REDACTED and REDACTED.pdf"},
-        {"zq9", "azq9b", "aREDACTEDb.pdf"},
-        {"zq9", "zq9zq", "REDACTEDzq.pdf"},
-        {"zq9", "zqzq9", "zqREDACTED.pdf"},
-        {"zq9", "zq9/zq9", "REDACTED_REDACTED.pdf"},
-        {"zq9", "zq", "zq.pdf"},
-        {"zq9", "ZQ9 zq 9 z-q9", "ZQ9 zq 9 z-q9.pdf"},
-        {"7", "7", "REDACTED.pdf"},
-        {"7", "a7b7c", "aREDACTEDbREDACTEDc.pdf"},
-        {"7", "777", "REDACTEDREDACTEDREDACTED.pdf"},
-        {"aa", "aaa", "REDACTEDa.pdf"},
-        {"aa", "aaaa", "REDACTEDREDACTED.pdf"},
-        {"aba", "ababa", "REDACTEDba.pdf"},
-        {"zqz", "zqzqz", "REDACTEDqz.pdf"},
-        {"q~.-_z", "x q~.-_z y", "x REDACTED y.pdf"},
-        {"q.z", "q.z", "REDACTED.pdf"},
+        {ZK, ZK, "REDACTED.pdf"},
+        {ZK, ZK " book", "REDACTED book.pdf"},
+        {ZK, "my " ZK, "my REDACTED.pdf"},
+        {ZK, "my " ZK " book", "my REDACTED book.pdf"},
+        {ZK, ZK ZK, "REDACTEDREDACTED.pdf"},
+        {ZK, ZK " and " ZK, "REDACTED and REDACTED.pdf"},
+        {ZK, "a" ZK "b", "aREDACTEDb.pdf"},
+        {ZK, ZK "zq", "REDACTEDzq.pdf"},
+        {ZK, "zq" ZK, "zqREDACTED.pdf"},
+        {ZK, ZK "/" ZK, "REDACTED_REDACTED.pdf"},
+        {ZK, "zq9-0123456789a", "zq9-0123456789a.pdf"},
+        {ZK, "ZQ9-0123456789AB zq 9 z-q9", "ZQ9-0123456789AB zq 9 z-q9.pdf"},
+        {K7, K7, "REDACTED.pdf"},
+        {K7, "a" K7 "b" K7 "c", "aREDACTEDbREDACTEDc.pdf"},
+        {K7, K7 K7 K7, "REDACTEDREDACTEDREDACTED.pdf"},
+        {K7, "7777777777777777777", "REDACTED777.pdf"},
+        {KA16, "aaaaaaaaaaaaaaaaa", "REDACTEDa.pdf"},
+        {KA16, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "REDACTEDREDACTED.pdf"},
+        {KAB, "ababababababababab", "REDACTEDab.pdf"},
+        {KQ, "zqzqzqzqzqzqzqzqzq", "REDACTEDzq.pdf"},
+        {"q~.-_z-0123456789", "x q~.-_z-0123456789 y", "x REDACTED y.pdf"},
+        {"q.z-0123456789abc", "q.z-0123456789abc", "REDACTED.pdf"},
     };
     for (size_t i = 0; i < COUNT(c); i++) {
         title_case(t, c[i].key, c[i].title, c[i].name);
@@ -98,39 +105,41 @@ static void t_long_key_in_the_title_is_redacted(ctest_t *t) {
 
 static void t_redaction_comes_before_the_cut_at_200_bytes(ctest_t *t) {
     static char want[300];
-    memset(g_title, '7', 30); /* 30 hits of 8 bytes = 240 bytes, cut to 200 = 25 hits */
-    g_title[30] = '\0';
+    for (unsigned i = 0; i < 30u; i++) { /* 30 hits of 8 bytes = 240 bytes, cut to 200 = 25 hits */
+        memcpy(g_title + 16u * i, K7, 16);
+    }
+    g_title[480] = '\0';
     want[0] = '\0';
     for (unsigned i = 0; i < 25u; i++) {
         strcat(want, "REDACTED");
     }
     strcat(want, ".pdf");
-    title_case(t, "7", g_title, want);
+    title_case(t, K7, g_title, want);
     memset(g_title, 'a', 195); /* the key starts at byte 195: the cut leaves a piece of "REDACTED", never of the key */
-    memcpy(g_title + 195, "zq9", 4);
+    memcpy(g_title + 195, ZK, 17);
     memset(want, 'a', 195);
     memcpy(want + 195, "REDAC.pdf", 10);
-    title_case(t, "zq9", g_title, want);
+    title_case(t, ZK, g_title, want);
     memset(g_title, 'a', 199);
-    memcpy(g_title + 199, "zq9", 4);
+    memcpy(g_title + 199, ZK, 17);
     memset(want, 'a', 199);
     memcpy(want + 199, "R.pdf", 6);
-    title_case(t, "zq9", g_title, want);
+    title_case(t, ZK, g_title, want);
     memset(g_title, 'a', 197); /* the key straddles the cut */
-    memcpy(g_title + 197, "zq9 tail", 9);
+    memcpy(g_title + 197, ZK " tail", 22);
     memset(want, 'a', 197);
     memcpy(want + 197, "RED.pdf", 8);
-    title_case(t, "zq9", g_title, want);
+    title_case(t, ZK, g_title, want);
 }
 
 static void t_a_redacted_title_collides_like_any_other_name(ctest_t *t) {
     kit_t *k = kit_begin();
-    kit_set_key(k, "zq9");
+    kit_set_key(k, ZK);
     api_ok(k, DLURL);
     kit_get(k, "a.example.org", 443, "/x", kit_http(k, 200, "OK", "", "x"));
     CHECK(t, kit_preload(k, "REDACTED.pdf", "old"));
     annas_request_t r = kit_req(KIT_MD5);
-    r.title = core_str_from_cstr("zq9");
+    r.title = core_str_from_cstr(ZK);
     r.format = core_str_from_cstr("pdf");
     kit_check_err(t, k, kit_download(k, &r), ANNAS_E_FS, 0, "file already exists: REDACTED.pdf");
     kit_check_no_partial(t, k, 1);
@@ -165,45 +174,29 @@ static void name_case(ctest_t *t, const char *key, const char *title, const char
 }
 
 static void t_a_key_made_by_sanitising_is_redacted(ctest_t *t) {
-    name_case(t, "a_b", "a/b", "pdf", "REDACTED.pdf");
-    name_case(t, "a_b", "x a/b y", "pdf", "x REDACTED y.pdf");
-    name_case(t, "a_b", "a:b a|b", "epub", "REDACTED REDACTED.epub");
-    name_case(t, "a_b", "a/b", NULL, "REDACTED.bin");
-    name_case(t, "_", "a/b", "pdf", "aREDACTEDb.pdf");
-    name_case(t, "__", "a//b", "pdf", "aREDACTEDb.pdf");
-    name_case(t, "et_c", "et/c x", "txt", "REDACTED x.txt");
-    name_case(t, "q-r", "q-r", "pdf", "REDACTED.pdf"); /* the first pass already removed it */
+    name_case(t, "aaaaaaaa_bbbbbbbb", "aaaaaaaa/bbbbbbbb", "pdf", "REDACTED.pdf");
+    name_case(t, "aaaaaaaa_bbbbbbbb", "x aaaaaaaa/bbbbbbbb y", "pdf", "x REDACTED y.pdf");
+    name_case(t, "aaaaaaaa_bbbbbbbb", "aaaaaaaa:bbbbbbbb aaaaaaaa|bbbbbbbb", "epub", "REDACTED REDACTED.epub");
+    name_case(t, "aaaaaaaa_bbbbbbbb", "aaaaaaaa/bbbbbbbb", NULL, "REDACTED.bin");
+    name_case(t, "________________", "////////////////", "pdf", "REDACTED.pdf");
+    name_case(t, "________________", "a/////////////////b", "pdf", "aREDACTED_b.pdf"); /* 17 underscores */
+    name_case(t, "et_cetera_et_cetera", "et/cetera:et?cetera", "txt", "REDACTED.txt");
+    name_case(t, "q-r-0123456789abcd", "q-r-0123456789abcd", "pdf", "REDACTED.pdf"); /* the first pass removed it */
 }
 
 static void t_a_key_inside_the_md5_is_redacted(ctest_t *t) {
-    name_case(t, "abcdef0123", NULL, NULL, "0123456789REDACTED456789abcdef.bin");
-    name_case(t, "abcdef0123", "", "pdf", "0123456789REDACTED456789abcdef.pdf");
+    name_case(t, "456789abcdef0123", NULL, NULL, "0123REDACTED456789abcdef.bin");
+    name_case(t, "456789abcdef0123", "", "pdf", "0123REDACTED456789abcdef.pdf");
     name_case(t, "0123456789abcdef0123456789abcdef", NULL, "pdf", "REDACTED.pdf");
-    name_case(t, "89ab", NULL, NULL, "01234567REDACTEDcdef01234567REDACTEDcdef.bin");
-    name_case(t, "abcdef", NULL, NULL, "0123456789REDACTED0123456789REDACTED.bin");
-    name_case(t, "0123", NULL, "pdf", "REDACTED456789abcdefREDACTED456789abcdef.pdf");
+    name_case(t, "89abcdef01234567", NULL, NULL, "01234567REDACTED89abcdef.bin");
+    name_case(t, "0123456789abcdef", NULL, "pdf", "REDACTEDREDACTED.pdf"); /* it occurs twice */
 }
 
-static void t_a_key_equal_to_the_format_is_redacted(ctest_t *t) {
-    name_case(t, "pdf", "Book", "pdf", "Book.REDACTED");
-    name_case(t, "pdf", "Book", "PDF", "Book.REDACTED");   /* the format is lower-cased before the pass */
-    name_case(t, "pdf", "pdf", "pdf", "REDACTED.REDACTED");
-    name_case(t, "bin", "Book", NULL, "Book.REDACTED");
-    name_case(t, "bin", NULL, NULL, KIT_MD5 ".REDACTED");
-    name_case(t, "df", "Book", "pdf", "Book.pREDACTED");
-    name_case(t, ".pdf", "Book", "pdf", "BookREDACTED");
-    name_case(t, "k.p", "Book.pdf", "pdf", "BooREDACTEDdf.pdf"); /* the title pass; the name pass finds nothing */
-}
-
-static void t_the_redacted_name_is_cut_at_the_name_limit(ctest_t *t) {
-    static char title[260], want[260];
-    memset(title, '/', 200); /* sanitised to 200 underscores, then ".pdf" */
-    title[200] = '\0';
-    for (size_t i = 0; i < sizeof want - 1u; i++) {
-        want[i] = "REDACTED"[i % 8u];
-    }
-    want[ANNAS_NAME_MAX - 1u] = '\0'; /* ANNAS_NAME_MAX-1 bytes */
-    name_case(t, "_", title, "pdf", want);
+/* The second pass sees the joined name: a key made of the end of the title, the dot and the start of the format. */
+static void t_a_key_spanning_the_joint_of_title_and_format_is_redacted(ctest_t *t) {
+    name_case(t, "zzzzzzzzzzzzzz.p", "zzzzzzzzzzzzzz", "pdf", "REDACTEDdf");
+    name_case(t, "zzzzzzzzzzzzzz.b", "zzzzzzzzzzzzzz", NULL, "REDACTEDin");
+    name_case(t, "yyyyyyyyyyyyyy.P", "yyyyyyyyyyyyyy", "pdf", "yyyyyyyyyyyyyy.pdf"); /* lower-cased: a near miss */
 }
 
 /* ---- the redirect ---------------------------------------------------------------------------------------------- */
@@ -224,34 +217,34 @@ typedef struct {
 
 static void t_a_target_containing_the_key_is_not_followed(ctest_t *t) {
     static const rcase_t c[] = {
-        {"zq9", "https://zq9.example.org/y", 302},
-        {"zq9", "https://b.zq9.example.org/y", 301},
-        {"zq9", "https://b.example.org/zq9", 303},
-        {"zq9", "https://b.example.org/a/zq9/b", 307},
-        {"zq9", "https://b.example.org/a/zq9", 308},
-        {"zq9", "https://b.example.org/zq9zq9", 302},
-        {"zq9", "https://b.example.org/zq9/zq9?zq9=zq9", 302},
-        {"zq9", "https://b.example.org/a?t=zq9", 302},
-        {"zq9", "https://b.example.org/a?zq9=1", 302},
-        {"zq9", "https://b.example.org/a?x=1&y=2&k=zq9", 302},
-        {"zq9", "https://b.example.org:8443/zq9", 302},
-        {"zq9", "https://b.example.org/zzq9", 302},
-        {"AbC", "https://abc.example.org/y", 302},   /* the host is compared without case */
-        {"AbC", "https://ABC.example.org/y", 302},
-        {"AbC", "https://xAbCx.example.org/y", 301},
-        {"AbC", "https://b.AbC.example.org/y", 307},
-        {"zq9", "https://ZQ9.example.org/y", 302},
-        {"zq9", "https://B.example.org/zq9", 302},  /* a key in the path, exactly: still caught */
-        {"AbC", "https://b.example.org/AbC", 302},
-        {"AbC", "https://b.example.org/a?x=AbC", 302},
-        {"zq9", "/zq9", 302},
-        {"zq9", "/a/zq9?x=1", 302},
-        {"zq9", "/a?k=zq9", 301},
-        {"7", "https://b.example.org/a7", 302},
-        {"7", "https://h7.example.org/a", 302},
-        {"7", "/a?x=7", 302},
-        {"zqzq", "https://b.example.org/zqzqzq", 302},
-        {"zq9-x.7_~", "https://b.example.org/f/zq9-x.7_~", 302},
+        {ZK, "https://" ZK ".example.org/y", 302},
+        {ZK, "https://b." ZK ".example.org/y", 301},
+        {ZK, "https://b.example.org/" ZK "", 303},
+        {ZK, "https://b.example.org/a/" ZK "/b", 307},
+        {ZK, "https://b.example.org/a/" ZK "", 308},
+        {ZK, "https://b.example.org/" ZK "" ZK "", 302},
+        {ZK, "https://b.example.org/" ZK "/" ZK "?" ZK "=" ZK "", 302},
+        {ZK, "https://b.example.org/a?t=" ZK "", 302},
+        {ZK, "https://b.example.org/a?" ZK "=1", 302},
+        {ZK, "https://b.example.org/a?x=1&y=2&k=" ZK "", 302},
+        {ZK, "https://b.example.org:8443/" ZK "", 302},
+        {ZK, "https://b.example.org/z" ZK "", 302},
+        {AK, "https://abcdefghijklmnop.example.org/y", 302},   /* the host is compared without case */
+        {AK, "https://ABCDEFGHIJKLMNOP.example.org/y", 302},
+        {AK, "https://xAbCdEfGhIjKlMnOpx.example.org/y", 301},
+        {AK, "https://b.AbCdEfGhIjKlMnOp.example.org/y", 307},
+        {ZK, "https://ZQ9-0123456789AB.example.org/y", 302},
+        {ZK, "https://B.example.org/" ZK "", 302},  /* a key in the path, exactly: still caught */
+        {AK, "https://b.example.org/AbCdEfGhIjKlMnOp", 302},
+        {AK, "https://b.example.org/a?x=AbCdEfGhIjKlMnOp", 302},
+        {ZK, "/" ZK "", 302},
+        {ZK, "/a/" ZK "?x=1", 302},
+        {ZK, "/a?k=" ZK "", 301},
+        {K7, "https://b.example.org/a" K7, 302},
+        {K7, "https://h" K7 ".example.org/a", 302},
+        {K7, "/a?x=" K7, 302},
+        {KQ, "https://b.example.org/" KQ "zq", 302},
+        {"zq9-x.7_~-0123456789", "https://b.example.org/f/zq9-x.7_~-0123456789", 302},
     };
     for (size_t i = 0; i < COUNT(c); i++) {
         kit_t *k = kit_begin();
@@ -281,10 +274,10 @@ static void t_a_long_key_in_the_target_is_not_followed(ctest_t *t) {
 static void t_the_check_applies_to_every_hop_up_to_the_fifth_redirect(ctest_t *t) {
     for (int bad = 1; bad <= 5; bad++) {
         kit_t *k = kit_begin();
-        kit_set_key(k, "zq9");
+        kit_set_key(k, ZK);
         api_ok(k, "https://h0.example.org/f/0");
         for (int i = 0; i < bad; i++) {
-            const char *loc = i + 1 == bad ? "https://h9.example.org/zq9" : KIT_FMT(k, "https://h%d.example.org/f/%d", i + 1, i + 1);
+            const char *loc = i + 1 == bad ? "https://h9.example.org/" ZK "" : KIT_FMT(k, "https://h%d.example.org/f/%d", i + 1, i + 1);
             kit_get(k, KIT_FMT(k, "h%d.example.org", i), 443, KIT_FMT(k, "/f/%d", i),
                     kit_http(k, 307, "F", KIT_FMT(k, "Location: %s\r\n", loc), ""));
         }
@@ -301,23 +294,23 @@ static void t_other_redirect_errors_keep_precedence(ctest_t *t) {
         int status;
         const char *msg;
     } c[] = {
-        {"http://b.example.org/zq9", ANNAS_E_HTTP, 302, "redirect to a non-https URL"},
-        {"https://b.example.org/a zq9", ANNAS_E_HTTP, 302, "invalid redirect location"},
-        {"https://user@b.example.org/zq9", ANNAS_E_HTTP, 302, "invalid redirect location"},
-        {"https://b.example.org/v?check=1&zq9", ANNAS_E_BROWSER_CHECK, 0, BROWSER},
+        {"http://b.example.org/" ZK "", ANNAS_E_HTTP, 302, "redirect to a non-https URL"},
+        {"https://b.example.org/a " ZK "", ANNAS_E_HTTP, 302, "invalid redirect location"},
+        {"https://user@b.example.org/" ZK "", ANNAS_E_HTTP, 302, "invalid redirect location"},
+        {"https://b.example.org/v?check=1&" ZK "", ANNAS_E_BROWSER_CHECK, 0, BROWSER},
     };
     for (size_t i = 0; i < COUNT(c); i++) {
         kit_t *k = kit_begin();
-        redirect_once(k, "zq9", 302, c[i].loc);
+        redirect_once(k, ZK, 302, c[i].loc);
         annas_request_t r = kit_req(KIT_MD5);
         kit_check_err(t, k, kit_download(k, &r), c[i].code, c[i].status, c[i].msg);
         kit_check_fs_untouched(t, k);
     }
     kit_t *k = kit_begin(); /* the 6th redirect response is "too many redirects", whatever its Location says */
-    kit_set_key(k, "zq9");
+    kit_set_key(k, ZK);
     api_ok(k, "https://h0.example.org/f/0");
     for (int i = 0; i < 6; i++) {
-        const char *loc = i == 5 ? "https://h9.example.org/zq9" : KIT_FMT(k, "https://h%d.example.org/f/%d", i + 1, i + 1);
+        const char *loc = i == 5 ? "https://h9.example.org/" ZK "" : KIT_FMT(k, "https://h%d.example.org/f/%d", i + 1, i + 1);
         kit_get(k, KIT_FMT(k, "h%d.example.org", i), 443, KIT_FMT(k, "/f/%d", i),
                 kit_http(k, 302, "F", KIT_FMT(k, "Location: %s\r\n", loc), ""));
     }
@@ -325,34 +318,46 @@ static void t_other_redirect_errors_keep_precedence(ctest_t *t) {
     kit_check_err(t, k, kit_download(k, &r), ANNAS_E_HTTP, 302, "too many redirects");
 }
 
+typedef struct {
+    const char *loc;
+    const char *host;
+    const char *target;
+} follow_t;
+
+/* A target that is followed: one hop to `host` and `target`, then the file. */
+static void followed(ctest_t *t, const char *key, const follow_t *f) {
+    kit_t *k = kit_begin();
+    redirect_once(k, key, 302, f->loc);
+    kit_get(k, f->host, 443, f->target, kit_http(k, 200, "OK", "", "data"));
+    annas_request_t r = kit_req(KIT_MD5);
+    kit_check_ok(t, k, kit_download(k, &r));
+    kit_check_file(t, k, KIT_MD5 ".bin", "data", 4);
+}
+
 static void t_near_misses_in_a_target_are_followed(ctest_t *t) {
-    static const char *const loc[] = {"https://b.example.org/zq?9", "https://b.example.org/z/q9",
-                                      "https://b.example.org/ZQ9", "https://b.example.org/zq-9",
-                                      "https://zq.example.org/9", "/zq/9"};
-    for (size_t i = 0; i < COUNT(loc); i++) {
-        kit_t *k = kit_begin();
-        redirect_once(k, "zq9", 302, loc[i]);
-        const char *host = loc[i][0] == '/' ? "a.example.org" : (i == 4 ? "zq.example.org" : "b.example.org");
-        const char *target = loc[i][0] == '/' ? loc[i] : strchr(loc[i] + 8, '/');
-        kit_get(k, host, 443, target, kit_http(k, 200, "OK", "", "data"));
-        annas_request_t r = kit_req(KIT_MD5);
-        kit_check_ok(t, k, kit_download(k, &r));
-        kit_check_file(t, k, KIT_MD5 ".bin", "data", 4);
+    static const follow_t c[] = {
+        {"https://b.example.org/zq9-0123456789a?b", "b.example.org", "/zq9-0123456789a?b"},
+        {"https://b.example.org/zq9-0123456789/ab", "b.example.org", "/zq9-0123456789/ab"},
+        {"https://b.example.org/ZQ9-0123456789AB", "b.example.org", "/ZQ9-0123456789AB"},
+        {"https://b.example.org/zq9-0123456789a-b", "b.example.org", "/zq9-0123456789a-b"},
+        {"https://zq9-0123456789a.example.org/b", "zq9-0123456789a.example.org", "/b"},
+        {"/zq9-0123456789a/b", "a.example.org", "/zq9-0123456789a/b"},
+    };
+    for (size_t i = 0; i < COUNT(c); i++) {
+        followed(t, ZK, &c[i]);
     }
 }
 
 /* Path and query are compared exactly: another case of the key there is not the key. */
 static void t_path_and_query_compare_exactly(ctest_t *t) {
-    static const char *const loc[] = {"https://b.example.org/abc", "https://b.example.org/ABC", "/a?x=abc", "/aBC"};
-    for (size_t i = 0; i < COUNT(loc); i++) {
-        kit_t *k = kit_begin();
-        redirect_once(k, "AbC", 302, loc[i]);
-        const char *host = loc[i][0] == '/' ? "a.example.org" : "b.example.org";
-        const char *target = loc[i][0] == '/' ? loc[i] : strchr(loc[i] + 8, '/');
-        kit_get(k, host, 443, target, kit_http(k, 200, "OK", "", "data"));
-        annas_request_t r = kit_req(KIT_MD5);
-        kit_check_ok(t, k, kit_download(k, &r));
-        kit_check_file(t, k, KIT_MD5 ".bin", "data", 4);
+    static const follow_t c[] = {
+        {"https://b.example.org/abcdefghijklmnop", "b.example.org", "/abcdefghijklmnop"},
+        {"https://b.example.org/ABCDEFGHIJKLMNOP", "b.example.org", "/ABCDEFGHIJKLMNOP"},
+        {"/a?x=abcdefghijklmnop", "a.example.org", "/a?x=abcdefghijklmnop"},
+        {"/aBcDeFgHiJkLmNoP", "a.example.org", "/aBcDeFgHiJkLmNoP"},
+    };
+    for (size_t i = 0; i < COUNT(c); i++) {
+        followed(t, AK, &c[i]);
     }
 }
 
@@ -362,8 +367,7 @@ CTEST_SUITE("key_flow",
     {"redaction_comes_before_the_cut_at_200_bytes", t_redaction_comes_before_the_cut_at_200_bytes},
     {"a_key_made_by_sanitising_is_redacted", t_a_key_made_by_sanitising_is_redacted},
     {"a_key_inside_the_md5_is_redacted", t_a_key_inside_the_md5_is_redacted},
-    {"a_key_equal_to_the_format_is_redacted", t_a_key_equal_to_the_format_is_redacted},
-    {"the_redacted_name_is_cut_at_the_name_limit", t_the_redacted_name_is_cut_at_the_name_limit},
+    {"a_key_spanning_the_joint_of_title_and_format_is_redacted", t_a_key_spanning_the_joint_of_title_and_format_is_redacted},
     {"a_redacted_title_collides_like_any_other_name", t_a_redacted_title_collides_like_any_other_name},
     {"a_target_containing_the_key_is_not_followed", t_a_target_containing_the_key_is_not_followed},
     {"a_long_key_in_the_target_is_not_followed", t_a_long_key_in_the_target_is_not_followed},

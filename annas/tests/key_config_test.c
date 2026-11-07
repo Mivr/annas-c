@@ -9,6 +9,12 @@
 #include "ctest/ctest.h"
 #include "ports/fakes.h"
 
+#define KEYSHORT "ANNAS_SECRET_KEY must be 16 to 256 bytes"
+#define KA "zq9-0123456789ab" /* a 16-byte fake key */
+#define K7 "7777777777777777"
+#define KQ "zqzqzqzqzqzqzqzq"
+#define KAB "abababababababab"
+#define KEYRED "ANNAS_SECRET_KEY must not contain REDACTED"
 #define KEYBAD "ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -"
 #define DIRKEY "ANNAS_DOWNLOAD_PATH contains the key"
 #define KEYLONG "ANNAS_SECRET_KEY is longer than 256 bytes"
@@ -73,18 +79,18 @@ static void t_config_every_byte_outside_the_key_class_is_refused(ctest_t *t) {
             continue;
         }
         char c = (char)b;
-        char key[3][5] = {{'a', 'b', 'c', 'd', c}, {c, 'a', 'b', 'c', 'd'}, {'a', 'b', c, 'c', 'd'}};
+        char key[3][16] = {{'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', c},
+                           {c, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o'},
+                           {'a', 'b', 'c', 'd', 'e', 'f', 'g', c, 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o'}};
         for (unsigned i = 0; i < 3u; i++) {
-            expect_fail(t, load_s((core_str_t){key[i], 5}, core_str_from_cstr("/dl"), true), KEYBAD);
-        }
-        if (b == 0u || strchr(KEYBAD, c) == NULL) { /* a one-byte key that the message itself holds is redacted in it */
-            expect_fail(t, load_s((core_str_t){&c, 1}, core_str_from_cstr("/dl"), true), KEYBAD);
+            expect_fail(t, load_s((core_str_t){key[i], 16}, core_str_from_cstr("/dl"), true), KEYBAD);
         }
     }
 }
 
 static void t_config_lower_case_percent_forms_are_refused(ctest_t *t) {
-    static const char *const bad[] = {"ab%1ecd", "ab%1Ecd", "%", "a%", "ab%zz", "ab%20", "%00"};
+    static const char *const bad[] = {"abcdefghijkl%1ecd", "abcdefghijkl%1Ecd", "abcdefghijklmno%", "abcdefghijklmn%zz",
+                                      "abcdefghijklm%20", "%00abcdefghijklmn", "%1eabcdefghijklmn"};
     for (size_t i = 0; i < COUNT(bad); i++) {
         expect_fail(t, load(bad[i], "/dl", true), KEYBAD);
     }
@@ -101,14 +107,15 @@ static void t_config_the_whole_class_is_accepted(ctest_t *t) {
     CHECK_EQ_U64(t, n, 66);
     expect_ok(t, load(g_all, "/dl", true));
     CHECK_EQ_MEM(t, g_cfg.key.ptr, g_cfg.key.len, g_all, 66);
-    static const char *const one[] = {"a", "Z", "0", ".", "_", "~", "-"};
-    for (size_t i = 0; i < COUNT(one); i++) {
-        expect_ok(t, load(one[i], "/dl", true));
-        CHECK_EQ_U64(t, g_cfg.key.len, 1);
+    static const char *const same[] = {"aaaaaaaaaaaaaaaa", "ZZZZZZZZZZZZZZZZ", "0000000000000000", "................",
+                                       "________________", "~~~~~~~~~~~~~~~~", "----------------"};
+    for (size_t i = 0; i < COUNT(same); i++) {
+        expect_ok(t, load(same[i], "/dl", true));
+        CHECK_EQ_U64(t, g_cfg.key.len, 16);
     }
 }
 
-static void t_config_the_length_limit_is_unchanged(ctest_t *t) {
+static void t_config_the_length_limits_are_16_and_256(ctest_t *t) {
     memset(g_key, 'a', 256);
     g_key[256] = '\0';
     expect_ok(t, load(g_key, "/dl", true));
@@ -126,12 +133,56 @@ static void t_config_the_length_limit_is_unchanged(ctest_t *t) {
     expect_fail(t, load(g_key, "/dl", true), KEYLONG);
 }
 
+static void t_config_a_key_of_15_bytes_or_less_is_refused(ctest_t *t) {
+    for (size_t n = 1; n <= 15u; n++) {
+        memset(g_key, 'a', n);
+        g_key[n] = '\0';
+        expect_fail(t, load(g_key, "/dl", true), KEYSHORT);
+    }
+    memset(g_key, 'a', 16);
+    g_key[16] = '\0';
+    expect_ok(t, load(g_key, "/dl", true)); /* 16 is the first accepted length */
+    CHECK_EQ_U64(t, g_cfg.key.len, 16);
+    static const char *const short_bad[] = {"a b", "ab%1ecd", "!", "q#q#q#q#q#q#q#q", "abcdefghijklmn\x01"};
+    for (size_t i = 0; i < COUNT(short_bad); i++) { /* too short wins over a bad byte */
+        expect_fail(t, load(short_bad[i], "/dl", true), KEYSHORT);
+    }
+    expect_fail(t, load("qqqq", "relative", true), KEYSHORT);              /* before the path checks */
+    expect_fail(t, load("qqqq", "/qqqq", true), KEYSHORT);
+    expect_fail(t, load("qqqq", NULL, true), MISSING);                     /* the missing-variable check is first */
+    expect_ok(t, load("qqqq", "/dl", false));                              /* not a download: no key checks at all */
+    CHECK_EQ_U64(t, g_cfg.key.len, 4);
+}
+
+static const char *const g_red[] = {"REDACTEDREDACTED", "REDACTEDabcdefghi", "abcdefgREDACTEDhijk", "abcdefghijklREDACTED",
+                                    "xREDACTEDxxxxxxxxx", "REDACTED-0123456789", "q.REDACTED.REDACTED.q"};
+static const char *const g_red_ok[] = {"REDACTEdREDACTEd", "redactedredacted", "REDACTE_DREDACTE_D", "REDACTEabcdefghijkl",
+                                       "REDACTE-0123456789"};
+
+static void t_config_a_key_containing_redacted_is_refused(ctest_t *t) {
+    for (size_t i = 0; i < COUNT(g_red); i++) {
+        expect_fail(t, load(g_red[i], "/dl", true), KEYRED);
+        expect_fail(t, load(g_red[i], "relative", true), KEYRED);               /* before the path checks */
+        expect_fail(t, load(g_red[i], "/dl", true), KEYRED);
+    }
+    snprintf(g_dir, sizeof g_dir, "/%s", g_red[0]);
+    expect_fail(t, load(g_red[0], g_dir, true), KEYRED);                     /* before key-in-path */
+    expect_fail(t, load("REDACTED", "/dl", true), KEYSHORT);                 /* too short first */
+    expect_fail(t, load("REDACTED !abcdefghij", "/dl", true), KEYBAD);       /* the class first */
+    expect_fail(t, load(g_red[0], NULL, true), MISSING);
+    expect_ok(t, load(g_red[0], "/dl", false));                               /* not a download: no key checks */
+    for (size_t i = 0; i < COUNT(g_red_ok); i++) {
+        expect_ok(t, load(g_red_ok[i], "/dl", true)); /* near misses: another case, or a gap, are not the text */
+        CHECK(t, g_cfg.key.len >= 16u);
+    }
+}
+
 static void t_config_key_class_is_checked_only_when_a_download_needs_it(ctest_t *t) {
-    expect_ok(t, load("ab cd", "/dl", false));
-    CHECK_EQ_U64(t, g_cfg.key.len, 5);
-    expect_ok(t, load("ab cd", NULL, false));
-    expect_fail(t, load("ab cd", "/dl", true), KEYBAD);
-    expect_fail(t, load("ab cd", NULL, true), MISSING); /* the missing-variable check is first */
+    expect_ok(t, load("abcdefghijk mnopq", "/dl", false));
+    CHECK_EQ_U64(t, g_cfg.key.len, 17);
+    expect_ok(t, load("abcdefghijk mnopq", NULL, false));
+    expect_fail(t, load("abcdefghijk mnopq", "/dl", true), KEYBAD);
+    expect_fail(t, load("abcdefghijk mnopq", NULL, true), MISSING); /* the missing-variable check is first */
     expect_fail(t, load("", "/dl", true), MISSING);
 }
 
@@ -144,9 +195,10 @@ typedef struct {
 
 static void t_config_a_path_containing_the_key_is_refused(ctest_t *t) {
     static const pair_t c[] = {
-        {"7", "/7"}, {"7", "/a/7/b"}, {"7", "/a/b7"}, {"7", "/7/"}, {"zq9", "/zq9"}, {"zq9", "/d/zq9"},
-        {"zq9", "/zq9/d"}, {"zq9", "/a/zq9/b/zq9"}, {"zq9", "/zzq9"}, {"zq9", "/zq9zq9"}, {"zqzq", "/zqzqzq"},
-        {"aba", "/ababa"}, {"q-x.7_~", "/dl/q-x.7_~/"}, {"q-x.7_~", "/dl/a q-x.7_~ b"}};
+        {K7, "/" K7}, {K7, "/a/" K7 "/b"}, {K7, "/a/b" K7}, {K7, "/" K7 "/"}, {K7, "/7" K7}, {KA, "/" KA}, {KA, "/d/" KA},
+        {KA, "/" KA "/d"}, {KA, "/a/" KA "/b/" KA}, {KA, "/z" KA}, {KA, "/" KA KA}, {KQ, "/" KQ "zqzq"},
+        {KAB, "/ab" KAB}, {"q-x.7_~-0123456789", "/dl/q-x.7_~-0123456789/"},
+        {"q-x.7_~-0123456789", "/dl/a q-x.7_~-0123456789 b"}};
     for (size_t i = 0; i < COUNT(c); i++) {
         expect_fail(t, load(c[i].key, c[i].dir, true), DIRKEY);
     }
@@ -165,23 +217,27 @@ static void t_config_a_path_containing_the_key_is_refused(ctest_t *t) {
 }
 
 static void t_config_near_misses_in_the_path_are_accepted(ctest_t *t) {
-    static const pair_t c[] = {{"zq9", "/zq"}, {"zq9", "/z/q9"}, {"zq9", "/ZQ9"}, {"zq9", "/zq-9"}, {"zq9", "/zq%39"},
-                               {"zqzq", "/zqzx"}, {"7", "/8"}};
+    static const pair_t c[] = {{KA, "/zq9-0123456789a"}, {KA, "/zq9-0123456789/ab"}, {KA, "/ZQ9-0123456789AB"},
+                               {KA, "/zq9-0123456789a-b"}, {KA, "/zq9-0123456789a%62"}, {KQ, "/zqzqzqzqzqzqzqzx"},
+                               {K7, "/777777777777777"}, {K7, "/7777777/77777777"}};
     for (size_t i = 0; i < COUNT(c); i++) {
         expect_ok(t, load(c[i].key, c[i].dir, true));
     }
-    expect_ok(t, load("zq9", "/zq9", false)); /* not a download: no path check */
+    expect_ok(t, load(KA, "/" KA, false)); /* not a download: no path check */
 }
 
 static void t_config_precedence_of_the_key_and_path_checks(ctest_t *t) {
-    expect_fail(t, load("ab cd", "relative", true), KEYBAD);                      /* d before e */
-    expect_fail(t, load("ab zq9", "/ab zq9", true), KEYBAD);                      /* d before f */
-    expect_fail(t, load("zq9", "zq9/a", true), "ANNAS_DOWNLOAD_PATH must be an absolute path, got: REDACTED/a");
-    memset(g_dir, 'a', 257); /* c before f: a 257-byte path that contains the key */
-    memcpy(g_dir, "/zq9", 4);
+    expect_fail(t, load("abcdefghijk mnopq", "relative", true), KEYBAD);          /* class before absolute */
+    expect_fail(t, load("ab zq9-0123456789", "/ab zq9-0123456789", true), KEYBAD); /* class before key-in-path */
+    expect_fail(t, load(KA, "zq9-0123456789ab/a", true), "ANNAS_DOWNLOAD_PATH must be an absolute path, got: REDACTED/a");
+    memset(g_dir, 'a', 257); /* a 257-byte path that contains the key: the length message first */
+    memcpy(g_dir, "/" KA, 17);
     g_dir[257] = '\0';
-    expect_fail(t, load("zq9", g_dir, true), DIRLONG);
-    expect_fail(t, load("zq9", "", true), MISSING);
+    expect_fail(t, load(KA, g_dir, true), DIRLONG);
+    expect_fail(t, load(KA, "", true), MISSING);
+    memset(g_key, 'a', 257); /* key too long and a path too long: the key first */
+    g_key[257] = '\0';
+    expect_fail(t, load(g_key, g_dir, true), KEYLONG);
 }
 
 /* ---- the operations: the same checks on the key and directory of a context ------------------------------------- */
@@ -196,7 +252,7 @@ static void t_ops_refuse_a_key_outside_the_class_before_any_port_call(ctest_t *t
         if (in_class(b)) {
             continue;
         }
-        char key[6] = {'a', 'b', (char)b, 'c', 'd', 0};
+        char key[18] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', (char)b, 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 0};
         for (unsigned d = 0; d < 2u; d++) {
             kit_t *k = kit_begin();
             kit_set_key(k, key);
@@ -205,25 +261,66 @@ static void t_ops_refuse_a_key_outside_the_class_before_any_port_call(ctest_t *t
         }
     }
     kit_t *k = kit_begin();
-    kit_set_key(k, "ab%1ecd");
+    kit_set_key(k, "abcdefghijkl%1ecd");
     kit_check_err(t, k, both(k, false), ANNAS_E_CONFIG, 0, KEYBAD);
     k = kit_begin();
     CHECK(t, kit_prepare(k));
-    k->cfg.key = (core_str_t){"ab\0cd", 5}; /* a NUL byte inside the key */
+    k->cfg.key = (core_str_t){"abcdefghijklmn\0o", 16}; /* a NUL byte inside the key */
     kit_check_err(t, k, both(k, false), ANNAS_E_CONFIG, 0, KEYBAD);
     k = kit_begin();
     CHECK(t, kit_prepare(k));
-    k->cfg.key = (core_str_t){"ab\0cd", 5};
+    k->cfg.key = (core_str_t){"abcdefghijklmn\0o", 16};
     kit_check_err(t, k, both(k, true), ANNAS_E_CONFIG, 0, KEYBAD);
+}
+
+static void t_ops_refuse_a_key_of_15_bytes_or_less_before_any_port_call(ctest_t *t) {
+    for (size_t n = 1; n <= 15u; n++) {
+        memset(g_key, 'a', n);
+        g_key[n] = '\0';
+        for (unsigned d = 0; d < 2u; d++) {
+            kit_t *k = kit_begin();
+            kit_set_key(k, g_key);
+            kit_check_err(t, k, both(k, d != 0), ANNAS_E_CONFIG, 0, KEYSHORT);
+            kit_check_fs_untouched(t, k);
+        }
+    }
+    kit_t *k = kit_begin(); /* too short wins over a bad byte and over a bad md5 */
+    kit_set_key(k, "a b");
+    annas_request_t r = kit_req("not-an-md5");
+    kit_check_err(t, k, kit_download(k, &r), ANNAS_E_CONFIG, 0, KEYSHORT);
+    k = kit_begin();
+    kit_set_key(k, "aaaaaaaaaaaaaaa"); /* 15 bytes, with the dir holding it */
+    kit_set_dir(k, "/aaaaaaaaaaaaaaa");
+    kit_check_err(t, k, both(k, true), ANNAS_E_CONFIG, 0, KEYSHORT);
+}
+
+static void run_fast_ok(ctest_t *t, const char *key, size_t len);
+
+static void t_ops_refuse_a_key_containing_redacted_before_any_port_call(ctest_t *t) {
+    for (size_t i = 0; i < COUNT(g_red); i++) {
+        for (unsigned d = 0; d < 2u; d++) {
+            kit_t *k = kit_begin();
+            kit_set_key(k, g_red[i]);
+            kit_check_err(t, k, both(k, d != 0), ANNAS_E_CONFIG, 0, KEYRED);
+            kit_check_fs_untouched(t, k);
+        }
+    }
+    kit_t *k = kit_begin(); /* before the dir check */
+    kit_set_key(k, g_red[0]);
+    kit_set_dir(k, "/REDACTEDREDACTED");
+    kit_check_err(t, k, both(k, true), ANNAS_E_CONFIG, 0, KEYRED);
+    for (size_t i = 0; i < COUNT(g_red_ok); i++) {
+        run_fast_ok(t, g_red_ok[i], strlen(g_red_ok[i]));
+    }
 }
 
 static void t_ops_config_comes_before_request_validation(ctest_t *t) {
     kit_t *k = kit_begin();
-    kit_set_key(k, "ab cd");
+    kit_set_key(k, "abcdefghijk mnopq");
     annas_request_t r = kit_req("not-an-md5");
     kit_check_err(t, k, kit_fast(k, &r), ANNAS_E_CONFIG, 0, KEYBAD);
     k = kit_begin();
-    kit_set_key(k, "ab cd");
+    kit_set_key(k, "abcdefghijk mnopq");
     r = kit_req("not-an-md5");
     kit_check_err(t, k, kit_download(k, &r), ANNAS_E_CONFIG, 0, KEYBAD);
 }
@@ -240,7 +337,7 @@ static void t_ops_refuse_a_key_longer_than_the_limit(ctest_t *t) {
 }
 
 static void t_ops_refuse_a_dir_containing_the_key(ctest_t *t) {
-    static const pair_t c[] = {{"7", "/7"}, {"zq9", "/dl/zq9"}, {"zq9", "/zq9/b"}, {"zq9", "/a/zq9zq9"}, {"zqzq", "/zqzqzq"}};
+    static const pair_t c[] = {{K7, "/" K7}, {KA, "/dl/" KA}, {KA, "/" KA "/b"}, {KA, "/a/" KA KA}, {KQ, "/" KQ "zq"}};
     for (size_t i = 0; i < COUNT(c); i++) {
         kit_t *k = kit_begin();
         kit_set_key(k, c[i].key);
@@ -249,14 +346,14 @@ static void t_ops_refuse_a_dir_containing_the_key(ctest_t *t) {
         kit_check_fs_untouched(t, k);
     }
     kit_t *k = kit_begin(); /* the key class comes first; the dir length comes before the key check */
-    kit_set_key(k, "zq 9");
-    kit_set_dir(k, "/zq 9");
+    kit_set_key(k, "zq 9-0123456789ab");
+    kit_set_dir(k, "/zq 9-0123456789ab");
     kit_check_err(t, k, both(k, true), ANNAS_E_CONFIG, 0, KEYBAD);
     k = kit_begin();
     memset(g_dir, 'a', 257);
-    memcpy(g_dir, "/zq9", 4);
+    memcpy(g_dir, "/" KA, 17);
     g_dir[257] = '\0';
-    kit_set_key(k, "zq9");
+    kit_set_key(k, KA);
     kit_set_dir(k, g_dir);
     kit_check_err(t, k, both(k, true), ANNAS_E_CONFIG, 0, DIRLONG);
 }
@@ -287,16 +384,16 @@ static void t_ops_accept_keys_at_the_limit_and_the_whole_class(ctest_t *t) {
     g_key[255] = '~'; /* ANNAS_KEY_MAX bytes */
     g_key[256] = '\0';
     run_fast_ok(t, g_key, 256);
-    run_fast_ok(t, "7", 1);
+    run_fast_ok(t, K7, 16); /* the shortest key */
     kit_t *k = kit_begin(); /* a dir that holds a near miss of the key is fine for a download */
-    kit_set_key(k, "zq9");
-    kit_set_dir(k, "/zq/9");
+    kit_set_key(k, KA);
+    kit_set_dir(k, "/zq9-0123456789a/b");
     kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", kit_ok_json(k, "https://dl.example.org/f", NULL)));
     kit_get(k, "dl.example.org", 443, "/f", kit_http(k, 200, "OK", "", "d"));
     kit_check_ok(t, k, both(k, true));
     k = kit_begin(); /* the fast call never looks at the dir */
-    kit_set_key(k, "zq9");
-    kit_set_dir(k, "/zq9");
+    kit_set_key(k, KA);
+    kit_set_dir(k, "/" KA);
     kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", kit_ok_json(k, "https://dl.example.org/f", NULL)));
     kit_check_ok(t, k, both(k, false));
 }
@@ -305,12 +402,16 @@ CTEST_SUITE("key_config",
     {"config_every_byte_outside_the_key_class_is_refused", t_config_every_byte_outside_the_key_class_is_refused},
     {"config_lower_case_percent_forms_are_refused", t_config_lower_case_percent_forms_are_refused},
     {"config_the_whole_class_is_accepted", t_config_the_whole_class_is_accepted},
-    {"config_the_length_limit_is_unchanged", t_config_the_length_limit_is_unchanged},
+    {"config_the_length_limits_are_16_and_256", t_config_the_length_limits_are_16_and_256},
     {"config_key_class_is_checked_only_when_a_download_needs_it", t_config_key_class_is_checked_only_when_a_download_needs_it},
     {"config_a_path_containing_the_key_is_refused", t_config_a_path_containing_the_key_is_refused},
     {"config_near_misses_in_the_path_are_accepted", t_config_near_misses_in_the_path_are_accepted},
     {"config_precedence_of_the_key_and_path_checks", t_config_precedence_of_the_key_and_path_checks},
     {"ops_refuse_a_key_outside_the_class_before_any_port_call", t_ops_refuse_a_key_outside_the_class_before_any_port_call},
+    {"ops_refuse_a_key_of_15_bytes_or_less_before_any_port_call", t_ops_refuse_a_key_of_15_bytes_or_less_before_any_port_call},
+    {"config_a_key_of_15_bytes_or_less_is_refused", t_config_a_key_of_15_bytes_or_less_is_refused},
+    {"config_a_key_containing_redacted_is_refused", t_config_a_key_containing_redacted_is_refused},
+    {"ops_refuse_a_key_containing_redacted_before_any_port_call", t_ops_refuse_a_key_containing_redacted_before_any_port_call},
     {"ops_config_comes_before_request_validation", t_ops_config_comes_before_request_validation},
     {"ops_refuse_a_key_longer_than_the_limit", t_ops_refuse_a_key_longer_than_the_limit},
     {"ops_refuse_a_dir_containing_the_key", t_ops_refuse_a_dir_containing_the_key},
