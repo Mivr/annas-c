@@ -62,12 +62,12 @@ bool json_number_text(const json_value_t *v, core_str_t *out) {
 }
 
 /* Splits a number's text into its sign and the rest. The text comes from json_num_scan (the only way a
- * JSON_NUMBER node is made), so it is -?digits... and never empty; core_parse_u64 then accepts only a pure
+ * JSON_NUMBER node is made), so it is -?digits... and never empty. core_parse_u64 then accepts only a pure
  * digit string, which rejects a fraction or an exponent. */
 static void split_sign(core_str_t t, bool *neg, core_str_t *digits) {
-    *neg = t.len > 0 && t.ptr[0] == '-';
-    digits->ptr = t.ptr + (*neg ? 1 : 0);
-    digits->len = t.len - (*neg ? 1 : 0);
+    *neg = t.ptr[0] == '-';
+    digits->ptr = t.ptr + *neg;
+    digits->len = t.len - *neg;
 }
 
 bool json_get_u64(const json_value_t *v, uint64_t *out) {
