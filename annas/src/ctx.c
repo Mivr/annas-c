@@ -9,7 +9,7 @@
 #define WS_REDACT_NEED ((ANNAS_API_BODY_MAX / 5u + 1u) * 13u)
 
 _Static_assert(WS_REST_OFF + WS_REDACT_NEED <= ANNAS_WORKSPACE_MIN, "workspace layout does not fit");
-_Static_assert(WS_REST_OFF + 2u * WS_URL_BUF + HTTP_MAX_LINE <= ANNAS_WORKSPACE_MIN, "URL buffers do not fit");
+_Static_assert(WS_REST_OFF + WS_LOC_OFF + HTTP_MAX_LINE <= ANNAS_WORKSPACE_MIN, "URL buffers do not fit");
 
 static bool stream_ok(ports_stream_t s) {
     return s.ops != NULL && s.ops->connect != NULL && s.ops->write != NULL && s.ops->read != NULL &&
@@ -38,12 +38,11 @@ bool annas_ctx_init(annas_ctx_t *ctx, const annas_config_t *cfg, annas_ports_t p
     ctx->clock = ports.clock;
     ctx->work = workspace;
     ctx->work_cap = cap;
-    ctx->deadline_ms = 0;
-    for (size_t i = 0; i < sizeof ctx->priv / sizeof ctx->priv[0]; i++) {
-        ctx->priv[i] = 0;
-    }
+    /* deadline_ms is set by op_begin when an operation starts, before anything reads it; priv is unused. */
     return true;
 }
+
+core_str_t ctx_key(const annas_ctx_t *ctx) { return ctx->cfg->key; }
 
 void ws_split(const annas_ctx_t *ctx, ws_t *w) {
     unsigned char *base = ctx->work;
@@ -57,8 +56,8 @@ void ws_split(const annas_ctx_t *ctx, ws_t *w) {
 
 void op_begin(annas_ctx_t *ctx) {
     uint64_t now = ctx->clock.ops->now_ms(ctx->clock.ctx);
-    uint64_t t = ctx->cfg->timeout_ms;
-    ctx->deadline_ms = (t > UINT64_MAX - now) ? UINT64_MAX : now + t;
+    uint64_t end = now + ctx->cfg->timeout_ms;
+    ctx->deadline_ms = end < now ? UINT64_MAX : end; /* the sum wrapped: saturate */
 }
 
 annas_code_t op_check(annas_ctx_t *ctx, annas_error_t *err) {

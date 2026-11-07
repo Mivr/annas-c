@@ -35,46 +35,43 @@ annas_code_t req_check(const annas_ctx_t *ctx, annas_error_t *err, const annas_r
     return ANNAS_OK;
 }
 
-/* "<sanitised title or md5>.<format or bin>" */
-static bool build_name(const annas_request_t *req, const char *md5, annas_download_result_t *res) {
+/* The longest name: a sanitised title, '.', a format of at most 16 bytes (req_check); the longest path: a dir of at
+ * most ANNAS_DIR_MAX bytes (check_config), '/', the name. So the builders below never overflow. */
+_Static_assert(FSNAME_MAX_LEN + 1u + 16u < ANNAS_NAME_MAX, "the file name always fits");
+_Static_assert(ANNAS_DIR_MAX + 1u + FSNAME_MAX_LEN + 1u + 16u < ANNAS_PATH_MAX, "the file path always fits");
+
+/* "<sanitised title or md5>.<format or bin>". fsname_sanitize returns at least 1 here: `clean` has
+ * FSNAME_BUF_SIZE bytes and req_check refused a title {NULL, len > 0}. */
+static void build_name(const annas_request_t *req, const char *md5, annas_download_result_t *res) {
     char clean[FSNAME_BUF_SIZE];
     core_str_t title = req->title.len > 0 ? req->title : (core_str_t){md5, URL_MD5_BUF - 1u};
     core_str_t ext = req->format.len > 0 ? req->format : core_str_from_cstr("bin");
     size_t n = fsname_sanitize(title, clean, sizeof clean);
     core_buf_t b;
-    if (n == 0 || !core_buf_init(&b, res->name, sizeof res->name)) {
-        return false;
-    }
+    (void)core_buf_init(&b, res->name, sizeof res->name); /* the result's own array: cannot fail */
     core_buf_put(&b, clean, n);
     core_buf_put_char(&b, '.');
     for (size_t i = 0; i < ext.len; i++) {
         core_buf_put_char(&b, core_ascii_lower(ext.ptr[i]));
     }
     res->name_len = core_buf_len(&b);
-    return !core_buf_overflow(&b);
 }
 
 /* dir without trailing '/' + "/" + name */
-static bool build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
+static void build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
     core_str_t dir = ctx->cfg->download_dir;
     core_buf_t b;
     while (dir.len > 0 && dir.ptr[dir.len - 1u] == '/') {
         dir.len--;
     }
-    if (!core_buf_init(&b, res->path, sizeof res->path)) {
-        return false;
-    }
+    (void)core_buf_init(&b, res->path, sizeof res->path); /* the result's own array: cannot fail */
     core_buf_put_str(&b, dir);
     core_buf_put_char(&b, '/');
     core_buf_put(&b, res->name, res->name_len);
     res->path_len = core_buf_len(&b);
-    return !core_buf_overflow(&b);
 }
 
-annas_code_t name_build(const annas_ctx_t *ctx, annas_error_t *err, const annas_request_t *req, const char *md5,
-                        annas_download_result_t *res) {
-    if (!build_name(req, md5, res) || !build_path(ctx, res)) {
-        return msg_text(err, ANNAS_E_FS, 0, ctx_key(ctx), "could not save the file");
-    }
-    return ANNAS_OK;
+void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, annas_download_result_t *res) {
+    build_name(req, md5, res);
+    build_path(ctx, res);
 }

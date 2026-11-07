@@ -8,8 +8,9 @@ typedef struct {
     core_str_t base_raw;
 } env_values_t;
 
+/* The env port sets the value when it returns true (ports.h); otherwise it is {NULL, 0} here. */
 static core_str_t env_get(ports_env_t env, const char *name) {
-    core_str_t v = {NULL, 0};
+    core_str_t v;
     if (!env.ops->get(env.ctx, core_str_from_cstr(name), &v)) {
         v.ptr = NULL;
         v.len = 0;
@@ -20,17 +21,17 @@ static core_str_t env_get(ports_env_t env, const char *name) {
 /* 1. timeout_seconds in range */
 static annas_code_t check_timeout(int64_t seconds, core_str_t key, annas_error_t *err) {
     char buf[96];
-    uint64_t mag;
-    msg_body_t body = {{NULL, 0}, {NULL, 0}, MSG_NO_CUT};
-    if (seconds >= 0 && seconds <= (int64_t)ANNAS_MAX_TIMEOUT_SECONDS) {
+    core_str_t none = {NULL, 0};
+    core_str_t text;
+    if (seconds < 0) {
+        uint64_t mag = (uint64_t)0 - (uint64_t)seconds;
+        text = msg_u64(buf, sizeof buf, "timeout must be 0 or more seconds, got: -", mag, "");
+    } else if (seconds > (int64_t)ANNAS_MAX_TIMEOUT_SECONDS) {
+        text = msg_u64(buf, sizeof buf, "timeout must be at most 31536000 seconds, got: ", (uint64_t)seconds, "");
+    } else {
         return ANNAS_OK;
     }
-    if (seconds < 0) {
-        mag = (uint64_t)0 - (uint64_t)seconds;
-        body.prefix = msg_u64(buf, sizeof buf, "timeout must be 0 or more seconds, got: -", mag, "");
-    } else {
-        body.prefix = msg_u64(buf, sizeof buf, "timeout must be at most 31536000 seconds, got: ", (uint64_t)seconds, "");
-    }
+    msg_body_t body = {text, none, MSG_NO_CUT};
     return msg_fail(err, ANNAS_E_ARG, 0, key, &body);
 }
 
@@ -69,7 +70,7 @@ annas_code_t annas_config_load(ports_env_t env, bool need_download, int64_t time
                                annas_error_t *err) {
     env_values_t v;
     char base[ANNAS_BASE_MAX];
-    size_t base_len = 0;
+    size_t base_len; /* set by check_base, read only when it succeeded */
     uint64_t seconds = timeout_seconds == 0 ? (uint64_t)ANNAS_DEFAULT_TIMEOUT_SECONDS : (uint64_t)timeout_seconds;
     if (err == NULL) {
         return ANNAS_E_ARG;
