@@ -2,6 +2,8 @@
 
 #include "ports/fakes.h"
 
+_Static_assert(PORTS_FAKE_MM_NONE == 0, "a zeroed stream has no mismatch");
+
 static ports_fake_stream_t *as_stream(void *ctx) { return (ports_fake_stream_t *)ctx; }
 
 static const ports_fake_step_t *cur_step(const ports_fake_stream_t *s, ports_fake_step_kind_t kind) {
@@ -36,13 +38,11 @@ static bool timed_out(const ports_fake_stream_t *s, uint64_t deadline) {
 
 /* Index of the first differing byte; the shorter length when one is a prefix of the other. */
 static size_t first_diff(core_str_t a, core_str_t b) {
-    size_t n = a.len < b.len ? a.len : b.len;
-    for (size_t i = 0; i < n; i++) {
-        if (a.ptr[i] != b.ptr[i]) {
-            return i;
-        }
+    size_t i = 0u;
+    while (i != a.len && i != b.len && a.ptr[i] == b.ptr[i]) {
+        i++;
     }
-    return n;
+    return i;
 }
 
 static ports_err_t stream_connect(void *ctx, core_str_t host, uint16_t port, uint64_t deadline_ms) {
@@ -126,15 +126,11 @@ static ports_err_t stream_write(void *ctx, const void *buf, size_t len) {
     return st->err;
 }
 
-static ports_err_t read_respond(ports_fake_stream_t *s, const ports_fake_step_t *st, void *buf, size_t cap,
-                                size_t *n) {
-    size_t k = st->data.len - s->progress;
-    if (k > cap) {
-        k = cap;
-    }
-    if (st->chunk != 0u && k > st->chunk) {
-        k = st->chunk;
-    }
+static size_t min_size(size_t a, size_t b) { return a < b ? a : b; }
+
+static void read_respond(ports_fake_stream_t *s, const ports_fake_step_t *st, void *buf, size_t cap, size_t *n) {
+    size_t limit = st->chunk != 0u ? st->chunk : SIZE_MAX; /* chunk 0 = no limit */
+    size_t k = min_size(min_size(st->data.len - s->progress, cap), limit);
     memcpy(buf, st->data.ptr + s->progress, k);
     *n = k;
     s->progress += k;
@@ -144,13 +140,13 @@ static ports_err_t read_respond(ports_fake_stream_t *s, const ports_fake_step_t 
     if (s->clock != NULL) {
         ports_fake_clock_advance(s->clock, s->read_advance_ms);
     }
-    return PORTS_OK;
 }
 
 static ports_err_t read_step(ports_fake_stream_t *s, void *buf, size_t cap, size_t *n) {
     const ports_fake_step_t *st = cur_step(s, PORTS_FAKE_STEP_RESPOND);
     if (st != NULL) {
-        return read_respond(s, st, buf, cap, n);
+        read_respond(s, st, buf, cap, n);
+        return PORTS_OK;
     }
     st = cur_step(s, PORTS_FAKE_STEP_EOF);
     if (st != NULL) {
@@ -244,20 +240,8 @@ bool ports_fake_stream_init(ports_fake_stream_t *s, const ports_fake_step_t *ste
     if (s == NULL) {
         return false;
     }
-    s->steps = NULL;
-    s->count = 0u;
-    s->pos = 0u;
-    s->progress = 0u;
-    s->open = false;
-    s->eof = false;
-    s->failed = false;
-    s->mm.kind = PORTS_FAKE_MM_NONE;
-    s->mm.step = 0u;
-    s->mm.offset = 0u;
-    s->clock = clock;
-    s->read_advance_ms = read_advance_ms;
-    s->deadline_ms = 0u;
-    s->closes = 0u;
+    /* everything else starts at zero: no script, position 0, closed, not failed, mismatch NONE, no deadline */
+    *s = (ports_fake_stream_t){.clock = clock, .read_advance_ms = read_advance_ms};
     if (!script_valid(steps, count)) {
         record(s, PORTS_FAKE_MM_UNEXPECTED_CALL, 0u); /* unusable: every call fails with E_NET */
         return false;
