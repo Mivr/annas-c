@@ -22,7 +22,20 @@
  *        step 2 and BEFORE they are cut to their length limit.)
  *   So the member key (raw or percent-encoded) never appears in any message or result string, whatever the server,
  *   the title or the environment echoes. The key is sent only in the API request line to the configured base
- *   host; it is never part of any other request (download hosts, redirects).
+ *   host; it is never part of any other request (download hosts, redirects). Four rules make that hold:
+ *   KEY CLASS.  A key is 1..ANNAS_KEY_MAX bytes, each one of A-Z a-z 0-9 '.' '_' '~' '-' (the URL-unreserved set).
+ *     So pct_encode(KEY) == KEY, "raw or percent-encoded" below is one test, and a key never holds a control byte
+ *     or a '%' (no lower-case "%1e" form exists). Any other key is ANNAS_E_CONFIG (see annas_config_load and
+ *     the operations); the length limit is unchanged.
+ *   TITLE.  annas_download first replaces, in the request's title, every non-overlapping occurrence (left to
+ *     right) of KEY, then of pct_encode(KEY) if that differs from KEY (never, given the key class), with the
+ *     8 bytes "REDACTED" (the rule of step 2 above); only then does fsname_sanitize cut and clean it (at most
+ *     200 bytes). The commit name, the result `name` and `path` and annas_format_downloaded therefore never
+ *     contain the key because of the title. (The md5 and the format are not redacted; a key that is a
+ *     substring of those, or of ".bin", is the operator's choice.)
+ *   DOWNLOAD PATH.  A download directory that contains KEY is ANNAS_E_CONFIG (config check, no port call).
+ *   REDIRECT.  A redirect whose resolved target (host, port, path or query, as it would be sent) contains KEY is
+ *     ANNAS_E_HTTP, no connection is made to the new host and the fs is not touched (see annas_download).
  * Timeout.  An operation takes `start = clock.now_ms()` when it begins and has the absolute deadline
  *   start + cfg->timeout_ms (saturating). The deadline is passed to every stream connect, and annas ALSO compares
  *   the clock with it before every port call (connect, stream write, stream read, fs create_temp, fs write, fs
@@ -44,6 +57,10 @@
  *             "ANNAS_SECRET_KEY and ANNAS_DOWNLOAD_PATH environment variables must be set"
  *             "ANNAS_DOWNLOAD_PATH must be an absolute path, got: <path>"
  *             "ANNAS_SECRET_KEY is longer than 256 bytes"   "ANNAS_DOWNLOAD_PATH is longer than 256 bytes"
+ *             "ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -"   (a byte outside
+ *                          the key class, key of 1..256 bytes; the text never echoes the key)
+ *             "ANNAS_DOWNLOAD_PATH contains the key"       (the path contains the key, raw or percent-encoded;
+ *                          the text never echoes the path)
  *             (echoed values are cut to their first 200 bytes after the common finalisation)
  *  E_BROWSER_CHECK  "the site requires browser verification; use download-by-md5 with a hash found in a browser"
  *             (http_detect_challenge on the API response and on every download response, head + body prefix)
@@ -52,6 +69,8 @@
  *             "too many redirects"                    the 6th redirect response;
  *             "redirect without a Location header"    (missing or empty);
  *             "redirect to a non-https URL";          "invalid redirect location"   (any other bad Location)
+ *             "redirect contains the key"             the resolved target of a redirect that would be followed
+ *                          contains the key, raw or percent-encoded (checked last, see annas_download)
  *             http_status = the status of the response that caused it
  *  E_NET      "connection failed"                     connect failed (PORTS_E_NET, CLOSED, ARG)
  *             "TLS error"                             PORTS_E_TLS from any port call
@@ -142,11 +161,16 @@ typedef struct {
  *   1. timeout_seconds < 0 or > ANNAS_MAX_TIMEOUT_SECONDS -> E_ARG; 0 means ANNAS_DEFAULT_TIMEOUT_SECONDS.
  *   2. base: ANNAS_BASE_URL unset or empty -> URL_DEFAULT_BASE; otherwise url_base_normalize, and the result must
  *      also satisfy http_host_valid -> else E_CONFIG (message echoes the RAW value).
- *   3. only when `need_download`: key or download path unset or empty -> E_CONFIG (the combined message);
- *      key longer than ANNAS_KEY_MAX or path longer than ANNAS_DIR_MAX -> E_CONFIG; path not starting with '/'
- *      -> E_CONFIG (absolute-path message).
+ *   3. only when `need_download`, in this order, the first failure being E_CONFIG:
+ *      a. key or download path unset or empty (the combined message);
+ *      b. key longer than ANNAS_KEY_MAX;  c. path longer than ANNAS_DIR_MAX;
+ *      d. key with a byte outside the key class (see Messages above): the "may only contain" message;
+ *      e. path not starting with '/' (the absolute-path message; a key in the echoed path is redacted);
+ *      f. path containing the key, raw or percent-encoded: the "contains the key" message.
  * When !need_download the key and path are copied if set (no checks at all) and never required.
  * The key is known from the env even when an earlier check fails, so it is redacted from that message.
+ * The operations repeat checks a-d and f on the key and directory they are given (an annas_config_t not made by
+ * this function is checked too), see below.
  * `err` and `cfg` must not be NULL (E_ARG "invalid argument" if err is non-NULL and cfg is). */
 annas_code_t annas_config_load(ports_env_t env, bool need_download, int64_t timeout_seconds, annas_config_t *cfg,
                                annas_error_t *err);
@@ -211,7 +235,9 @@ typedef struct {
 } annas_download_result_t;
 
 /* The API call. Order of work: (1) config: key (and for annas_download the download dir) must be non-empty, else
- * E_CONFIG with the combined message; (2) request validation -> E_ARG: the fast call validates only the md5 and
+ * E_CONFIG with the combined message; then, in the order of annas_config_load, the key length (b), for
+ * annas_download the dir length (c), the key class (d) and for annas_download a dir that contains the key (f), each
+ * its E_CONFIG message (the absolute-path check (e) stays annas_config_load's); (2) request validation -> E_ARG: the fast call validates only the md5 and
  * ignores title and format (annas_download also validates format, md5 first); (1) and (2) happen before ANY port
  * call. (3) connect(base, 443, deadline); write
  *   GET /dyn/api/fast_download.json?md5=<md5>&key=<pct_encode(key)>[&path_index=<n>][&domain_index=<n>] HTTP/1.1
@@ -241,14 +267,18 @@ annas_code_t annas_fast_download_url(annas_ctx_t *ctx, const annas_request_t *re
  *   - a redirect (http_is_redirect_status): first http_detect_challenge, then http_redirect_resolve; follow it
  *     on a NEW connection to the new host. At most 5 redirects are followed; the 6th redirect response is
  *     E_HTTP "too many redirects". The key is never sent. Redirect bodies are not read (CL 0 in tests);
+ *     the target of a redirect is checked LAST, after challenge detection and every http_redirect_resolve failure
+ *     above: if its host, port, path or query contains the key (or pct_encode(key)), the result is E_HTTP
+ *     "redirect contains the key" with http_status = the redirect response's status, no connect to the new
+ *     host, nothing created in the fs, the open stream closed as always;
  *   - any other status than 200: first http_detect_challenge with the body (annas reads the body up to
  *     HTTP_CHALLENGE_PREFIX bytes or the end of the message, whichever is first), then E_HTTP "unexpected HTTP
  *     status <n>". Nothing is created in the fs for these;
  *   - 200: ONLY NOW create_temp. Each stream read that carries body bytes causes exactly ONE fs write with exactly
  *     those bytes, in order, for Content-Length and read-until-close bodies (a chunked body: one write per body
  *     slice the parser yields). Body bytes are never buffered whole. A zero-length 200 body commits an empty file.
- *     At the end of the message: commit(temp, name) with name = fsname_sanitize(title, or the md5 when the title is
- *     absent) + "." + (format lower-cased, or "bin");
+ *     At the end of the message: commit(temp, name) with name = fsname_sanitize(redacted title, or the md5 when the
+ *     title is absent) + "." + (format lower-cased, or "bin"), the title redacted as the TITLE rule says;
  *   - EVERY failure after create_temp calls discard(temp) once; nothing is committed, no partial file remains
  *     (if discard itself fails the original error is still the one reported). commit == PORTS_FS_E_EXISTS ->
  *     E_FS "file already exists: <name>", the existing file untouched;
