@@ -344,10 +344,22 @@ static void check_tree_probes(ctest_t *t, size_t n) {
     }
 }
 
+/* The sizes walked (A070; walking every n in 1..200 cost ~2.7 s CPU per test under san). The index is a top-down
+ * red-black tree (json/src/parse.c: descend, fix_red, rot1, rot2). Every n in 1..40 covers the shapes of the first
+ * insertions (colour flips, single and double rotations) and the first black-height steps. Above that the depth grows
+ * with the power of two, so 2^k and its neighbours are walked (63, 64, 65, 127, 128, 129), plus 100 and 150 between
+ * them and the top end 199 and 200 (the longest keys, 67 bytes, are family 2 at n = 200). The mutants killed by this
+ * file were listed before and after the change (json module, linux_release): the same set. */
+static const size_t k_tree_sizes[] = {1,  2,  3,  4,  5,  6,  7,  8,  9,   10,  11,  12,  13,  14,  15,
+                                      16, 17, 18, 19, 20, 21, 22, 23, 24,  25,  26,  27,  28,  29,  30,
+                                      31, 32, 33, 34, 35, 36, 37, 38, 39,  40,  63,  64,  65,  100, 127,
+                                      128, 129, 150, 199, 200};
+
 static void tree_sizes(ctest_t *t, unsigned first_pattern, unsigned last_pattern) {
-    size_t n;
+    size_t s, n;
     unsigned pattern;
-    for (n = 1; n <= TREE_MAX; n++) {
+    for (s = 0; s < sizeof k_tree_sizes / sizeof k_tree_sizes[0]; s++) {
+        n = k_tree_sizes[s];
         make_keys(n, (unsigned)(n % 3u));
         for (pattern = first_pattern; pattern <= last_pattern; pattern++) {
             make_order(n, pattern);
