@@ -1,7 +1,6 @@
 /* tls_stream/src/tls_stream.c: a ports_stream_t over mbedTLS (client only). See tls_stream/tls_stream.h for the
  * contract; the trust rules live here: VERIFY_REQUIRED, the host name checked, certificate time from the injected
  * wall clock, and a transport end of file without close_notify is an error, never an end of stream. */
-#include <limits.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -38,7 +37,7 @@ static mbedtls_time_t wall_now(mbedtls_time_t *out)
     if (o != NULL) {
         secs = o->cfg.wall.unix_seconds(o->cfg.wall.ctx);
     }
-    v = secs > (uint64_t) LONG_MAX ? (mbedtls_time_t) LONG_MAX : (mbedtls_time_t) secs;
+    v = (mbedtls_time_t) secs;
     if (out != NULL) {
         *out = v;
     }

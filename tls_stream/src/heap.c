@@ -67,11 +67,12 @@ static void *heap_calloc(size_t count, size_t size)
         return NULL;
     }
     h = &g_active->heap;
-    if (size != 0U && count > (SIZE_MAX - 2U * ALIGN) / size) {
+    /* need = the payload rounded up to ALIGN, plus the header; both steps refuse a size_t overflow */
+    if (__builtin_mul_overflow(count, size, &need) || __builtin_add_overflow(need, 2U * ALIGN - 1U, &need)) {
         h->failed = true;
         return NULL;
     }
-    need = (count * size + ALIGN - 1U) / ALIGN * ALIGN + ALIGN;
+    need = need / ALIGN * ALIGN;
     b = find_fit(h, need);
     if (b == NULL) {
         h->failed = true;
@@ -115,9 +116,8 @@ bool tls_claim(tls_obj_t *o)
     if (g_active != NULL) {
         return false;
     }
-    if (mbedtls_platform_set_calloc_free(heap_calloc, heap_free) != 0) {
-        return false;
-    }
+    /* always 0 in mbedtls 3.6.7 (platform.c): the hook cannot fail to install */
+    (void) mbedtls_platform_set_calloc_free(heap_calloc, heap_free);
     g_active = o;
     return true;
 }

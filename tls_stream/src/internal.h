@@ -42,7 +42,7 @@ typedef struct {
 /* heap.c: the allocator over the arena, and the process-wide "connected object" slot (the hooks of mbedTLS
  * are global, so there is at most one connected object). */
 void tls_heap_setup(tls_heap_t *h, void *mem, size_t size);
-bool tls_claim(tls_obj_t *o);   /* false if another object holds the slot or the hook cannot be installed */
+bool tls_claim(tls_obj_t *o);   /* false if another object holds the slot */
 void tls_release(tls_obj_t *o);
 const tls_obj_t *tls_active(void);
 

@@ -27,12 +27,9 @@ static void fail(tls_obj_t *o, ports_err_t why)
 static int wait_ready(tls_obj_t *o, bool for_write)
 {
     for (;;) {
-        int e;
-        if (tls_deadline_passed(o)) {
-            fail(o, PORTS_E_TIMEOUT);
-            return -1;
-        }
-        e = o->cfg.transport.ops->wait(o->cfg.transport.ctx, for_write, o->deadline);
+        /* a passed deadline is the same outcome as a transport that reports ETIMEDOUT, and wait() is not called */
+        int e = tls_deadline_passed(o) ? ETIMEDOUT
+                                       : o->cfg.transport.ops->wait(o->cfg.transport.ctx, for_write, o->deadline);
         if (e == 0) {
             return 0;
         }
