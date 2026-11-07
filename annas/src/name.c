@@ -40,23 +40,6 @@ annas_code_t req_check(const annas_ctx_t *ctx, annas_error_t *err, const annas_r
 _Static_assert(FSNAME_MAX_LEN + 1u + 16u < ANNAS_NAME_MAX, "the file name always fits");
 _Static_assert(ANNAS_DIR_MAX + 1u + FSNAME_MAX_LEN + 1u + 16u < ANNAS_PATH_MAX, "the file path always fits");
 
-/* "<sanitised title or md5>.<format or bin>". fsname_sanitize returns at least 1 here: `clean` has
- * FSNAME_BUF_SIZE bytes and req_check refused a title {NULL, len > 0}. */
-static void build_name(const annas_request_t *req, const char *md5, annas_download_result_t *res) {
-    char clean[FSNAME_BUF_SIZE];
-    core_str_t title = req->title.len > 0 ? req->title : (core_str_t){md5, URL_MD5_BUF - 1u};
-    core_str_t ext = req->format.len > 0 ? req->format : core_str_from_cstr("bin");
-    size_t n = fsname_sanitize(title, clean, sizeof clean);
-    core_buf_t b;
-    (void)core_buf_init(&b, res->name, sizeof res->name); /* the result's own array: cannot fail */
-    core_buf_put(&b, clean, n);
-    core_buf_put_char(&b, '.');
-    for (size_t i = 0; i < ext.len; i++) {
-        core_buf_put_char(&b, core_ascii_lower(ext.ptr[i]));
-    }
-    res->name_len = core_buf_len(&b);
-}
-
 /* dir without trailing '/' + "/" + name */
 static void build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
     core_str_t dir = ctx->cfg->download_dir;
@@ -71,7 +54,20 @@ static void build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
     res->path_len = core_buf_len(&b);
 }
 
+/* The name "<sanitised title or md5>.<format or bin>", then the path. fsname_sanitize returns at least 1 here:
+ * `clean` has FSNAME_BUF_SIZE bytes and req_check refused a title {NULL, len > 0}. */
 void name_build(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, annas_download_result_t *res) {
-    build_name(req, md5, res);
+    char clean[FSNAME_BUF_SIZE];
+    core_str_t title = req->title.len > 0 ? req->title : (core_str_t){md5, URL_MD5_BUF - 1u};
+    core_str_t ext = req->format.len > 0 ? req->format : core_str_from_cstr("bin");
+    size_t n = fsname_sanitize(title, clean, sizeof clean);
+    core_buf_t b;
+    (void)core_buf_init(&b, res->name, sizeof res->name); /* the result's own array: cannot fail */
+    core_buf_put(&b, clean, n);
+    core_buf_put_char(&b, '.');
+    for (size_t i = 0; i < ext.len; i++) {
+        core_buf_put_char(&b, core_ascii_lower(ext.ptr[i]));
+    }
+    res->name_len = core_buf_len(&b);
     build_path(ctx, res);
 }

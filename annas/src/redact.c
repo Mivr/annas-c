@@ -64,10 +64,9 @@ size_t key_match(const cat_t *t, size_t pos, core_str_t key) {
     return n != 0 ? n : match_pct(t, pos, key);
 }
 
-/* A match needs at least key.len bytes (raw, or 1 or 3 per byte encoded), so later positions are not tried. */
 bool key_in(core_str_t hay, core_str_t key) {
     cat_t t = {hay, {NULL, 0}, false};
-    for (size_t pos = 0; pos + key.len <= hay.len; pos++) {
+    for (size_t pos = 0; pos < hay.len; pos++) {
         if (key_match(&t, pos, key) != 0) {
             return true;
         }
