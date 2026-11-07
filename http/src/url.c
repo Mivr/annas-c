@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "http/src/internal.h"
 
 #define LIT(s) ((core_str_t){(s), sizeof(s) - 1})
@@ -31,6 +33,7 @@ static bool label_ok(core_str_t l) {
     return true;
 }
 
+/* True if every byte of the non-empty label `l` (label_ok has passed) is a digit. */
 static bool all_digits(core_str_t l) {
     size_t i;
     for (i = 0; i < l.len; i++) {
@@ -38,7 +41,7 @@ static bool all_digits(core_str_t l) {
             return false;
         }
     }
-    return l.len > 0;
+    return true;
 }
 
 /* A label that a C resolver would read as a number: all digits, or 0x followed by hex digits. */
@@ -61,41 +64,42 @@ static bool numeric_label(core_str_t l) {
 static bool octet_ok(core_str_t l) {
     unsigned v = 0;
     size_t i;
-    if (!all_digits(l) || l.len > 3 || (l.len > 1 && l.ptr[0] == '0')) {
+    if (!all_digits(l) || (l.len > 1 && l.ptr[0] == '0')) {
         return false;
     }
     for (i = 0; i < l.len; i++) {
         v = v * 10u + (unsigned)(l.ptr[i] - '0');
-    }
-    return v <= 255u;
-}
-
-/* Takes the next dot-separated label off *rest. */
-static void next_label(core_str_t *rest, core_str_t *label, bool *last) {
-    size_t i;
-    for (i = 0; i < rest->len; i++) {
-        if (rest->ptr[i] == '.') {
-            *label = (core_str_t){rest->ptr, i};
-            rest->ptr += i + 1;
-            rest->len -= i + 1;
-            *last = false;
-            return;
+        if (v > 255u) {
+            return false;
         }
     }
-    *label = *rest;
-    *last = true;
-    rest->ptr += rest->len;
-    rest->len = 0;
+    return true;
+}
+
+/* Takes the next dot-separated label off *rest. After the last one, *rest is not used again. */
+static void next_label(core_str_t *rest, core_str_t *label, bool *last) {
+    const char *dot = memchr(rest->ptr, '.', rest->len);
+    size_t n;
+    if (dot == NULL) {
+        *label = *rest;
+        *last = true;
+        return;
+    }
+    n = (size_t)(dot - rest->ptr);
+    *label = (core_str_t){rest->ptr, n};
+    rest->ptr += n + 1;
+    rest->len -= n + 1;
+    *last = false;
 }
 
 /* Walks the labels: checks each, counts them, reports the last. */
 static bool walk_labels(core_str_t s, unsigned *count, core_str_t *last_label, bool *quad_ok) {
     core_str_t rest = s;
-    core_str_t l = {NULL, 0};
-    bool last = false;
+    core_str_t l;
+    bool last;
     *count = 0;
     *quad_ok = true;
-    while (!last) {
+    do {
         next_label(&rest, &l, &last);
         if (!label_ok(l)) {
             return false;
@@ -104,14 +108,14 @@ static bool walk_labels(core_str_t s, unsigned *count, core_str_t *last_label, b
         if (!octet_ok(l)) {
             *quad_ok = false;
         }
-    }
+    } while (!last);
     *last_label = l;
     return true;
 }
 
 bool http_host_valid(core_str_t s) {
     unsigned count;
-    core_str_t last_label = {NULL, 0};
+    core_str_t last_label;
     bool quad_ok;
     if (s.len == 0 || s.len > 253 || s.ptr == NULL) {
         return false;
@@ -128,7 +132,7 @@ bool http_host_valid(core_str_t s) {
 static http_status_t port_parse(core_str_t p, uint16_t *port) {
     unsigned v = 0;
     size_t i;
-    if (p.len < 1 || p.len > 5 || p.ptr[0] == '0') {
+    if (p.len < 1 || p.ptr[0] == '0') {
         return HTTP_E_URL;
     }
     for (i = 0; i < p.len; i++) {
@@ -136,34 +140,26 @@ static http_status_t port_parse(core_str_t p, uint16_t *port) {
             return HTTP_E_URL;
         }
         v = v * 10u + (unsigned)(p.ptr[i] - '0');
-    }
-    if (v > 65535u) {
-        return HTTP_E_URL;
+        if (v > 65535u) {
+            return HTTP_E_URL;
+        }
     }
     *port = (uint16_t)v;
     return HTTP_OK;
 }
 
+/* "host[:port]". Userinfo ('@') and brackets fail the host or port check, so they need no test of their own;
+ * `auth.ptr` is not NULL (both callers slice a URL). */
 http_status_t http_authority_parse(core_str_t auth, core_str_t *host, uint16_t *port) {
-    size_t i;
-    size_t colon = CORE_NPOS;
+    const char *colon = memchr(auth.ptr, ':', auth.len);
+    core_str_t h = {auth.ptr, colon == NULL ? auth.len : (size_t)(colon - auth.ptr)};
     http_status_t st = HTTP_OK;
-    core_str_t h;
     uint16_t pt = 443;
-    for (i = 0; i < auth.len; i++) {
-        if (auth.ptr[i] == '@' || auth.ptr[i] == '[') {
-            return HTTP_E_URL;
-        }
-        if (auth.ptr[i] == ':' && colon == CORE_NPOS) {
-            colon = i;
-        }
-    }
-    h = (core_str_t){auth.ptr, colon == CORE_NPOS ? auth.len : colon};
     if (!http_host_valid(h)) {
         return HTTP_E_URL;
     }
-    if (colon != CORE_NPOS) {
-        st = port_parse((core_str_t){auth.ptr + colon + 1, auth.len - colon - 1}, &pt);
+    if (colon != NULL) {
+        st = port_parse((core_str_t){colon + 1, auth.len - h.len - 1}, &pt);
     }
     if (st != HTTP_OK) {
         return st;
@@ -173,22 +169,21 @@ http_status_t http_authority_parse(core_str_t auth, core_str_t *host, uint16_t *
     return HTTP_OK;
 }
 
+enum { URL_SCHEME_LEN = 8 }; /* strlen("https://") */
+
 static bool scheme_https(core_str_t url) {
-    static const char k_scheme[] = "https://";
+    static const char k_letters[] = "https";
     size_t i;
-    if (url.len < sizeof k_scheme - 1) {
+    if (url.len < URL_SCHEME_LEN) {
         return false;
     }
-    for (i = 0; i < 5; i++) {
-        char c = url.ptr[i];
-        if (c >= 'A' && c <= 'Z') {
-            c = (char)(c - 'A' + 'a');
-        }
-        if (c != k_scheme[i]) {
+    for (i = 0; i < sizeof k_letters - 1; i++) {
+        /* k_letters holds only letters, so OR-ing 0x20 matches exactly each letter's two cases. */
+        if (((unsigned char)url.ptr[i] | 0x20u) != (unsigned char)k_letters[i]) {
             return false;
         }
     }
-    return url.ptr[5] == ':' && url.ptr[6] == '/' && url.ptr[7] == '/';
+    return memcmp(url.ptr + 5, "://", 3) == 0;
 }
 
 static bool url_has_bad_byte(core_str_t url) {
@@ -199,15 +194,6 @@ static bool url_has_bad_byte(core_str_t url) {
         }
     }
     return false;
-}
-
-/* The first of '/', '?', '#' at or after `from`, or the end of the url. */
-static size_t authority_end(core_str_t url, size_t from) {
-    size_t i = from;
-    while (i < url.len && url.ptr[i] != '/' && url.ptr[i] != '?' && url.ptr[i] != '#') {
-        i++;
-    }
-    return i;
 }
 
 /* The first '#' at or after `from`, or the end of the url. */
@@ -221,6 +207,8 @@ static size_t fragment_start(core_str_t url, size_t from) {
 
 http_status_t http_url_split(core_str_t url, http_url_t *out) {
     size_t i;
+    const char *slash;
+    core_str_t rest;
     http_url_t u;
     http_status_t st;
     if (out == NULL || (url.ptr == NULL && url.len > 0)) {
@@ -229,15 +217,20 @@ http_status_t http_url_split(core_str_t url, http_url_t *out) {
     if (!scheme_https(url)) {
         return HTTP_E_SCHEME;
     }
-    if (url.len > HTTP_MAX_URL || url_has_bad_byte(url)) {
+    rest = (core_str_t){url.ptr + URL_SCHEME_LEN, url.len - URL_SCHEME_LEN}; /* scheme_https checked the length */
+    /* The authority ends at the first '/'. A '?' or '#' before it is not valid in a host or port, and no '/' at
+     * all is HTTP_E_URL too, so every case other than a valid authority and a '/' is the one error. */
+    slash = memchr(rest.ptr, '/', rest.len);
+    if (slash == NULL) {
         return HTTP_E_URL;
     }
-    i = authority_end(url, 8);
-    st = http_authority_parse((core_str_t){url.ptr + 8, i - 8}, &u.host, &u.port);
+    i = (size_t)(slash - url.ptr);
+    st = http_authority_parse((core_str_t){rest.ptr, i - URL_SCHEME_LEN}, &u.host, &u.port);
     if (st != HTTP_OK) {
         return st;
     }
-    if (i >= url.len || url.ptr[i] != '/') {
+    /* A bad byte in the authority already failed the host or port check; the '/' itself is fine. */
+    if (url.len > HTTP_MAX_URL || url_has_bad_byte((core_str_t){slash + 1, url.len - i - 1})) {
         return HTTP_E_URL;
     }
     u.target = (core_str_t){url.ptr + i, fragment_start(url, i) - i};

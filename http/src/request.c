@@ -8,11 +8,13 @@ static bool slice_arg_bad(core_str_t s) {
 
 static bool target_ok(core_str_t t) {
     size_t i;
+    core_str_t rest;
     if (t.len == 0 || t.ptr[0] != '/') {
         return false;
     }
-    for (i = 0; i < t.len; i++) {
-        unsigned char c = (unsigned char)t.ptr[i];
+    rest = (core_str_t){t.ptr + 1, t.len - 1}; /* the '/' just checked needs no range test */
+    for (i = 0; i < rest.len; i++) {
+        unsigned char c = (unsigned char)rest.ptr[i];
         if (c < 0x21u || c > 0x7Eu) {
             return false;
         }

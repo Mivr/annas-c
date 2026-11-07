@@ -67,26 +67,25 @@ static http_status_t step_line(http_parser_t *p, core_str_t *in, http_event_t *e
     return line_done(p, n, ev);
 }
 
-/* Hands out up to `limit` bytes of the input as a BODY event. */
-static void take_body(core_str_t *in, uint64_t limit, http_event_t *ev) {
-    size_t n = in->len;
-    if ((uint64_t)n > limit) {
-        n = (size_t)limit;
-    }
+/* Hands out the first n bytes of the input as a BODY event (n <= in->len). */
+static void give_body(core_str_t *in, size_t n, http_event_t *ev) {
     ev->kind = HTTP_EV_BODY;
     ev->data = (core_str_t){in->ptr, n};
     in->ptr += n;
     in->len -= n;
 }
 
-static http_status_t step_counted(http_parser_t *p, core_str_t *in, http_event_t *ev) {
-    take_body(in, p->remaining, ev);
-    p->remaining -= ev->data.len;
-    if (p->remaining == 0) {
+/* Body or chunk data of a known length: the whole input if it is shorter than `remaining`, else exactly the
+ * rest, and then the next state. */
+static void step_counted(http_parser_t *p, core_str_t *in, http_event_t *ev) {
+    size_t n = in->len;
+    if ((uint64_t)n >= p->remaining) {
+        n = (size_t)p->remaining;
         p->state = (p->state == HTTP_ST_BODY_LENGTH) ? HTTP_ST_END_PENDING : HTTP_ST_CHUNK_CRLF;
         p->aux = 0;
     }
-    return HTTP_OK;
+    p->remaining -= n;
+    give_body(in, n, ev);
 }
 
 /* One byte of the CRLF that follows chunk data. */
@@ -99,7 +98,6 @@ static http_status_t step_chunk_crlf(http_parser_t *p, core_str_t *in) {
         return HTTP_OK;
     }
     if (p->aux == 1u && c == '\n') {
-        p->aux = 0;
         p->state = HTTP_ST_CHUNK_SIZE;
         return HTTP_OK;
     }
@@ -115,9 +113,10 @@ static http_status_t step(http_parser_t *p, core_str_t *in, http_event_t *ev) {
         return step_line(p, in, ev);
     case HTTP_ST_BODY_LENGTH:
     case HTTP_ST_CHUNK_DATA:
-        return step_counted(p, in, ev);
+        step_counted(p, in, ev);
+        return HTTP_OK;
     case HTTP_ST_BODY_CLOSE:
-        take_body(in, UINT64_MAX, ev);
+        give_body(in, in->len, ev);
         return HTTP_OK;
     case HTTP_ST_CHUNK_CRLF:
         return step_chunk_crlf(p, in);
