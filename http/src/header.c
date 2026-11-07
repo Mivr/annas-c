@@ -4,17 +4,10 @@
 
 #define LIT(s) ((core_str_t){(s), sizeof(s) - 1})
 
-static bool is_alnum_byte(unsigned char c) {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-}
-
-/* The punctuation of RFC 9110 tchar. */
-static bool is_tchar_symbol(unsigned char c) {
-    return c != '\0' && strchr("!#$%&'*+-.^_`|~", c) != NULL;
-}
-
+/* RFC 9110 tchar: the digits, the letters and the punctuation below. */
 static bool is_tchar(unsigned char c) {
-    return is_alnum_byte(c) || is_tchar_symbol(c);
+    return c != '\0' &&
+           strchr("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&'*+-.^_`|~", c) != NULL;
 }
 
 /* HTAB, SP, 0x21..0x7E and bytes >= 0x80. */

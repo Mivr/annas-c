@@ -42,8 +42,8 @@ static int seg_kind(const merged_t *m, size_t s, size_t e) {
 
 /* ---- dot-segment removal: the RFC 3986 section 5.2.4 write cursor --------------------------------------------
  *
- * The output buffer itself is the stack of kept items. Each item is "/seg" (one per '/' of the path; text
- * before the first '/' is ignored). A normal segment (empty ones too) is appended, "." is dropped, and ".."
+ * The output buffer itself is the stack of kept items. Each item is "/seg" (one per '/' of the path, which starts
+ * with '/'). A normal segment (empty ones too) is appended, "." is dropped, and ".."
  * truncates the output back to the '/' of the last kept item (never above `floor`, where the path starts).
  * Every input byte is copied at most once and removed at most once: linear time, no extra memory. */
 
@@ -76,10 +76,6 @@ static void emit_path(core_buf_t *out, const merged_t *m) {
     while (i < len && !core_buf_overflow(out)) {
         size_t e;
         int kind;
-        if (m_at(m, i) != '/') {
-            i++;
-            continue;
-        }
         e = seg_end(m, i + 1);
         kind = seg_kind(m, i + 1, e);
         dir = kind != 0;
@@ -241,7 +237,7 @@ static merged_t pick_path(const ref_t *r, core_str_t cur_path) {
     if (r->path.ptr[0] == '/') {
         return m;
     }
-    while (d > 0 && cur_path.ptr[d - 1] != '/') {
+    while (cur_path.ptr[d - 1] != '/') { /* cur_path starts with '/' (cur comes from http_url_split) */
         d--;
     }
     m.a = (core_str_t){cur_path.ptr, d};

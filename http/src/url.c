@@ -217,7 +217,7 @@ http_status_t http_url_split(core_str_t url, http_url_t *out) {
     if (!scheme_https(url)) {
         return HTTP_E_SCHEME;
     }
-    rest = (core_str_t){url.ptr + URL_SCHEME_LEN, url.len - URL_SCHEME_LEN}; /* scheme_https checked the length */
+    (void)core_str_split_once(url, LIT("://"), NULL, &rest); /* scheme_https found "://" at index 5 */
     /* The authority ends at the first '/'. A '?' or '#' before it is not valid in a host or port, and no '/' at
      * all is HTTP_E_URL too, so every case other than a valid authority and a '/' is the one error. */
     slash = memchr(rest.ptr, '/', rest.len);
@@ -225,7 +225,7 @@ http_status_t http_url_split(core_str_t url, http_url_t *out) {
         return HTTP_E_URL;
     }
     i = (size_t)(slash - url.ptr);
-    st = http_authority_parse((core_str_t){rest.ptr, i - URL_SCHEME_LEN}, &u.host, &u.port);
+    st = http_authority_parse((core_str_t){rest.ptr, (size_t)(slash - rest.ptr)}, &u.host, &u.port);
     if (st != HTTP_OK) {
         return st;
     }
