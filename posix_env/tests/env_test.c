@@ -220,6 +220,25 @@ static void t_real_process_environment(ctest_t *t) {
     }
 }
 
+static void t_single_entry_one_byte_name_is_found(ctest_t *t) {
+    static char a[] = "A=1";
+    static char *const envp[] = {a, NULL};
+    ports_env_t p = over(t, envp);
+    core_str_t v = {NULL, 99};
+    CHECK(t, get(p, LIT("A"), &v));
+    CHECK_EQ_U64(t, v.len, 1);
+    CHECK_EQ_I64(t, v.ptr[0], '1');
+}
+
+static void t_name_with_an_embedded_nul_never_matches_an_entry_with_one(ctest_t *t) {
+    static char a[] = {'A', '\0', 'B', '=', 'v', '\0'};
+    static char *const envp[] = {a, NULL};
+    ports_env_t p = over(t, envp);
+    core_str_t v = {a, 99};
+    CHECK(t, !get(p, (core_str_t){a, 3}, &v));
+    CHECK(t, v.ptr == NULL && v.len == 0);
+}
+
 CTEST_SUITE("posix_env",
     {"init_validates_arguments", t_init_validates_arguments},
     {"finds_values_and_points_into_the_snapshot", t_finds_values_and_points_into_the_snapshot},
@@ -234,4 +253,6 @@ CTEST_SUITE("posix_env",
     {"empty_environment_and_null_object", t_empty_environment_and_null_object},
     {"long_snapshot_and_long_values", t_long_snapshot_and_long_values},
     {"snapshot_changes_are_seen_because_it_is_borrowed", t_snapshot_changes_are_seen_because_it_is_borrowed},
-    {"real_process_environment", t_real_process_environment})
+    {"real_process_environment", t_real_process_environment},
+    {"single_entry_one_byte_name_is_found", t_single_entry_one_byte_name_is_found},
+    {"name_with_an_embedded_nul_never_matches_an_entry_with_one", t_name_with_an_embedded_nul_never_matches_an_entry_with_one})
