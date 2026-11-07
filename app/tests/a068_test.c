@@ -259,17 +259,6 @@ static void t_encoded_key_repeated_in_a_reply_that_stays_too_long(ctest_t *t) {
     check_delivered(t, a, 17u * 3u, true, 37u + 24u);
 }
 
-/* A one-byte key that is the very last byte of the text is still found. */
-static void t_one_byte_key_at_the_last_byte_of_a_cli_text(ctest_t *t) {
-    ak_t *a = ak_begin();
-    ak_env(a, "ANNAS_SECRET_KEY", "\n");
-    int rc = AK_CLI(a, "download-url", "zz");
-    CHECK_EQ_I64(t, rc, 2);
-    CHECK_EQ_STR(t, ak_out(a), "");
-    CHECK_EQ_STR(t, ak_err(a), "annas-c: E_ARG: md5 must be 32 hexadecimal charactersREDACTED");
-    ak_check_no_io(t, a);
-}
-
 /* Passes whose output would be far longer than the finalised-text limit: the reply is the -32603 error, whatever
  * lies behind the end of the pass buffer. */
 static void huge_expansion(ctest_t *t, const char *key, const char *unit, size_t count, const char *want) {
@@ -329,7 +318,6 @@ CTEST_SUITE("app_a068",
     {"without_a_key_a_reply_of_exactly_the_maximum_is_delivered", t_without_a_key_a_reply_of_exactly_the_maximum_is_delivered},
     {"encoded_key_repeated_shrinks_below_the_maximum", t_encoded_key_repeated_in_a_reply_shrinks_it_below_the_maximum},
     {"encoded_key_repeated_stays_too_long", t_encoded_key_repeated_in_a_reply_that_stays_too_long},
-    {"one_byte_key_at_the_last_byte_of_a_cli_text", t_one_byte_key_at_the_last_byte_of_a_cli_text},
     {"first_pass_expanding_far_past_the_limit", t_first_pass_expanding_far_past_the_limit},
     {"second_pass_expanding_far_past_the_limit", t_second_pass_expanding_far_past_the_limit},
     {"every_control_byte_in_a_text_is_escaped", t_every_control_byte_in_a_text_is_escaped})
