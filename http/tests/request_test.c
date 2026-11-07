@@ -321,6 +321,57 @@ static void t_arg_keeps_overflow_flag(ctest_t *t) {
     CHECK_EQ_U64(t, core_buf_len(&g_b), 0);
 }
 
+/* Return code of one write into an already-overflowed buffer. */
+static http_status_t write_overflowed(const http_url_t *u, core_str_t ver) {
+    fresh();
+    core_buf_put(&g_b, NULL, 1);
+    return http_request_write(&g_b, u, ver);
+}
+
+/* A bad slice beats an overflowed `out`, for each of the three slices. */
+static void t_arg_beats_overflow_each_slice(ctest_t *t) {
+    static const size_t lens[] = {1, 65, (size_t)1 << 20};
+    size_t i;
+    for (i = 0; i < sizeof lens / sizeof lens[0]; i++) {
+        http_url_t u = mk((core_str_t){NULL, lens[i]}, 443, LIT("/"));
+        CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_ARG);
+        u = mk(LIT("h"), 443, (core_str_t){NULL, lens[i]});
+        CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_ARG);
+        u = mk(LIT("h"), 443, LIT("/"));
+        CHECK_EQ_I64(t, write_overflowed(&u, (core_str_t){NULL, lens[i]}), HTTP_E_ARG);
+    }
+}
+
+/* ARG beats INVALID and OVERFLOW whichever other components are invalid, for each of the three slices. */
+static void t_arg_beats_invalid_each_position(ctest_t *t) {
+    http_url_t u = mk((core_str_t){NULL, 1}, 443, LIT("/"));
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("bad version")), HTTP_E_ARG);
+    u = mk((core_str_t){NULL, 1}, 443, LIT("no slash"));
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_ARG);
+    u = mk(LIT("h"), 0, (core_str_t){NULL, 1});
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_ARG);
+    u = mk(LIT("bad host!"), 443, (core_str_t){NULL, 1});
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_ARG);
+    u = mk(LIT("bad host!"), 443, LIT("/"));
+    CHECK_EQ_I64(t, write_overflowed(&u, (core_str_t){NULL, 1}), HTTP_E_ARG);
+    u = mk(LIT("h"), 443, LIT("/\r\n"));
+    CHECK_EQ_I64(t, write_overflowed(&u, (core_str_t){NULL, 1}), HTTP_E_ARG);
+    /* two bad slices at once */
+    u = mk((core_str_t){NULL, 1}, 443, (core_str_t){NULL, 1});
+    CHECK_EQ_I64(t, write_overflowed(&u, (core_str_t){NULL, 1}), HTTP_E_ARG);
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_ARG);
+}
+
+/* {NULL, 0} is an empty component: INVALID, also with an overflowed `out` (INVALID beats OVERFLOW). */
+static void t_empty_null_slices_beat_overflow(ctest_t *t) {
+    http_url_t u = mk((core_str_t){NULL, 0}, 443, LIT("/"));
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_INVALID);
+    u = mk(LIT("h"), 443, (core_str_t){NULL, 0});
+    CHECK_EQ_I64(t, write_overflowed(&u, LIT("0")), HTTP_E_INVALID);
+    u = mk(LIT("h"), 443, LIT("/"));
+    CHECK_EQ_I64(t, write_overflowed(&u, (core_str_t){NULL, 0}), HTTP_E_INVALID);
+}
+
 CTEST_SUITE("http_request",
             { "exact_bytes_default_port", t_exact_bytes_default_port },
             { "exact_bytes_other_port", t_exact_bytes_other_port },
@@ -339,4 +390,7 @@ CTEST_SUITE("http_request",
             { "arg_null_version", t_arg_null_version },
             { "empty_null_slices_invalid", t_empty_null_slices_invalid },
             { "arg_bad_next_to_valid", t_arg_bad_next_to_valid },
-            { "arg_keeps_overflow_flag", t_arg_keeps_overflow_flag })
+            { "arg_keeps_overflow_flag", t_arg_keeps_overflow_flag },
+            { "arg_beats_overflow_each_slice", t_arg_beats_overflow_each_slice },
+            { "arg_beats_invalid_each_position", t_arg_beats_invalid_each_position },
+            { "empty_null_slices_beat_overflow", t_empty_null_slices_beat_overflow })
