@@ -34,7 +34,7 @@ void *core_arena_alloc(core_arena_t *a, size_t size, size_t align) {
     remaining = a->cap - a->used;
     addr = (uintptr_t)(a->base + a->used);
     pad = (size_t)((align - (addr & (align - 1))) & (align - 1));
-    if (pad > remaining || size > remaining - pad) {
+    if (size > remaining || pad > remaining - size) {
         return NULL;
     }
     block = a->base + a->used + pad;
