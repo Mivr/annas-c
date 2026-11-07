@@ -27,7 +27,7 @@ static void setup(void) {
     memcpy(g_cfg.base, "annas-archive.gl", 17);
     g_cfg.base_len = 16;
     g_cfg.timeout_ms = 1000;
-    g_cfg.key = core_str_from_cstr("fake-key");
+    g_cfg.key = core_str_from_cstr("fake-key-0123456");
     g_cfg.download_dir = core_str_from_cstr("/dl");
     (void)ports_fake_stream_init(&g_stream, NULL, 0, &g_clock, 0);
     (void)ports_fake_fs_init(&g_fs, g_store, sizeof g_store);
@@ -162,7 +162,7 @@ static void t_missing_key_or_dir_is_config_error_before_any_port_call(ctest_t *t
     g_cfg.key = core_str_from_cstr("");
     expect_missing(t, annas_fast_download_url(&g_ctx, &req, &g_fast, &g_err));
     expect_missing(t, annas_download(&g_ctx, &req, &g_dl, &g_err));
-    g_cfg.key = core_str_from_cstr("fake-key");
+    g_cfg.key = core_str_from_cstr("fake-key-0123456");
     g_cfg.download_dir = core_str_from_cstr("");
     expect_missing(t, annas_download(&g_ctx, &req, &g_dl, &g_err));
     /* the fast call does not need the directory: it goes on and hits the (empty) script */
@@ -176,7 +176,7 @@ static void t_config_is_checked_before_arguments(ctest_t *t) {
                        ports_fake_clock_port(&g_clock), g_ws, ANNAS_WORKSPACE_MIN));
     g_cfg.key = core_str_from_cstr("");
     expect_missing(t, annas_fast_download_url(&g_ctx, &req, &g_fast, &g_err));
-    g_cfg.key = core_str_from_cstr("fake-key");
+    g_cfg.key = core_str_from_cstr("fake-key-0123456");
     CHECK_EQ_I64(t, annas_fast_download_url(&g_ctx, &req, &g_fast, &g_err), ANNAS_E_ARG);
     CHECK_EQ_STR(t, g_err.message, "md5 must be 32 hexadecimal characters");
 }

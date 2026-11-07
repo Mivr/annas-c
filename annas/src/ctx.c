@@ -51,7 +51,7 @@ void ws_split(const annas_ctx_t *ctx, ws_t *w) {
     w->io = base + WS_IO_OFF;
     w->body = base + WS_BODY_OFF;
     w->rest = base + WS_REST_OFF;
-    w->rest_cap = ctx->work_cap - WS_REST_OFF;
+    w->rest_cap = ANNAS_WORKSPACE_MIN - WS_REST_OFF; /* what every accepted workspace holds (annas_ctx_init) */
 }
 
 void op_begin(annas_ctx_t *ctx) {
@@ -71,18 +71,53 @@ annas_code_t arg_invalid(annas_error_t *err, core_str_t key) {
     return msg_text(err, ANNAS_E_ARG, 0, key, "invalid argument");
 }
 
-annas_code_t check_config(const annas_ctx_t *ctx, annas_error_t *err, bool need_dir) {
-    core_str_t key = ctx_key(ctx);
-    const core_str_t dir = ctx->cfg->download_dir;
+/* True iff every byte of the key is in the key class: A-Z a-z 0-9 . _ ~ - (annas.h, KEY CLASS). */
+static bool key_class(core_str_t key) {
+    for (size_t i = 0; i < key.len; i++) {
+        char c = key.ptr[i];
+        bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' ||
+                  c == '_' || c == '~' || c == '-';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The message of the first of the checks a, b, c, d, e, f of annas_config_load step 3 that fails, else NULL. */
+static const char *first_problem(core_str_t key, core_str_t dir, bool need_dir) {
     if (key.len == 0 || (need_dir && dir.len == 0)) {
-        return msg_text(err, ANNAS_E_CONFIG, 0, key,
-                        "ANNAS_SECRET_KEY and ANNAS_DOWNLOAD_PATH environment variables must be set");
+        return "ANNAS_SECRET_KEY and ANNAS_DOWNLOAD_PATH environment variables must be set";
     }
     if (key.len > ANNAS_KEY_MAX) {
-        return msg_text(err, ANNAS_E_CONFIG, 0, key, "ANNAS_SECRET_KEY is longer than 256 bytes");
+        return "ANNAS_SECRET_KEY is longer than 256 bytes";
+    }
+    if (key.len < 16u) {
+        return "ANNAS_SECRET_KEY must be 16 to 256 bytes";
     }
     if (need_dir && dir.len > ANNAS_DIR_MAX) {
-        return msg_text(err, ANNAS_E_CONFIG, 0, key, "ANNAS_DOWNLOAD_PATH is longer than 256 bytes");
+        return "ANNAS_DOWNLOAD_PATH is longer than 256 bytes";
+    }
+    if (!key_class(key)) {
+        return "ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -";
+    }
+    if (key_in(key, core_str_from_cstr(URL_REDACTED), false)) {
+        return "ANNAS_SECRET_KEY must not contain REDACTED";
+    }
+    return NULL;
+}
+
+annas_code_t check_config(core_str_t key, core_str_t dir, unsigned what, annas_error_t *err) {
+    const char *problem = first_problem(key, dir, (what & CFG_DIR) != 0u);
+    if (problem != NULL) {
+        return msg_text(err, ANNAS_E_CONFIG, 0, key, problem);
+    }
+    if ((what & CFG_ABS) != 0u && dir.ptr[0] != '/') {
+        msg_body_t body = {core_str_from_cstr("ANNAS_DOWNLOAD_PATH must be an absolute path, got: "), dir, 200};
+        return msg_fail(err, ANNAS_E_CONFIG, 0, key, &body);
+    }
+    if ((what & CFG_DIR) != 0u && key_in(dir, key, false)) {
+        return msg_text(err, ANNAS_E_CONFIG, 0, key, "ANNAS_DOWNLOAD_PATH contains the key");
     }
     return ANNAS_OK;
 }

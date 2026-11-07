@@ -123,7 +123,7 @@ static void t_the_title_is_the_key(ctest_t *t) {
     kw_peer_respond(1, kw_http(200, "OK", "x"));
     kw_in(CALL("1", "book_download", "{\"hash\":\"" KW_MD5 "\",\"title\":\"" KW_KEY "\"}"));
     CHECK_EQ_I64(t, KW_MCP0(), 0);
-    CHECK_EQ_STR(t, kw()->fs.name, KW_KEY ".bin");
+    CHECK_EQ_STR(t, kw()->fs.name, "REDACTED.bin");
     CHECK(t, kw_contains(kw_out(), "REDACTED.bin"));
     kw_check_no_key(t, KW_KEY);
 }

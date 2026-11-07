@@ -6,8 +6,8 @@
 #include "ctest/ctest.h"
 #include "wire/tests/kit.h"
 
-#define RAW "FAKE KEY&x=1/+"
-#define ENC "FAKE%20KEY%26x%3D1%2F%2B"
+#define RAW "FAKE-KEY.x_1~abcd"
+#define ENC RAW /* a key of the class is its own percent-encoding */
 #define PING_LINE KW_PING_REQ "\n"
 
 typedef struct {
@@ -75,16 +75,26 @@ static void t_the_key_from_dotenv_only(ctest_t *t) {
 }
 
 static void t_a_key_that_is_a_prefix_of_the_server_text(ctest_t *t) {
-    /* a short key: scrubbing must not depend on its length being above that of "REDACTED" */
+    /* the shortest key (16 bytes): the server text starts with it, repeats it back to back, then goes on */
+    kw_e2e_setup();
+    kw_env_clear();
+    kw_env("ANNAS_SECRET_KEY", "k3y-k3y-k3y-k3y0");
+    kw_env("ANNAS_BASE_URL", KW_PEER_HOST);
+    kw_env("SSL_CERT_FILE", KW_CA_PATH);
+    kw_peer_respond(0, kw_http(400, "Bad Request",
+                               "{\"download_url\":null,\"error\":\"k3y-k3y-k3y-k3y0 k3y-k3y-k3y-k3y0k3y-k3y-k3y-k3y0 x\"}"));
+    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 4);
+    CHECK(t, !kw_contains(kw_err(), "k3y-k3y"));
+    CHECK(t, kw_contains(kw_err(), "REDACTED REDACTEDREDACTED x"));
+    /* a key below 16 bytes is refused before any request */
     kw_e2e_setup();
     kw_env_clear();
     kw_env("ANNAS_SECRET_KEY", "k3y");
     kw_env("ANNAS_BASE_URL", KW_PEER_HOST);
     kw_env("SSL_CERT_FILE", KW_CA_PATH);
-    kw_peer_respond(0, kw_http(400, "Bad Request", "{\"download_url\":null,\"error\":\"k3y k3yk3y x\"}"));
-    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 4);
-    CHECK(t, !kw_contains(kw_err(), "k3y"));
-    CHECK(t, kw_contains(kw_err(), "REDACTED REDACTEDREDACTED x"));
+    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 2);
+    CHECK(t, kw_contains(kw_err(), "ANNAS_SECRET_KEY must be 16 to 256 bytes"));
+    CHECK_EQ_U64(t, kw_peer_request(0)[0], 0);
 }
 
 CTEST_SUITE("wire_e2e_secret", {"command_line_replies", t_command_line_replies}, {"mcp_replies", t_mcp_replies},

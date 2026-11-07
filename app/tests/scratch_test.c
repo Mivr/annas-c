@@ -182,21 +182,21 @@ static void t_cli_internal_error_and_help_with_exact_buffers(ctest_t *t) {
     CHECK(t, !core_buf_overflow(&g_o) && !core_buf_overflow(&g_e));
 }
 
-/* The fit is judged on the SCRUBBED text: a short key makes it longer, a long key shorter. */
+/* The fit is judged on the SCRUBBED text: even the shortest key (16 bytes) becomes 8, so the text only shrinks. */
 static void t_cli_fit_is_judged_after_scrubbing(ctest_t *t) {
     static const char longer[] = "Book downloaded successfully to: /dl/REDACTED.pdf\n";
     ak_t *a = ak_begin();
-    ak_env(a, "ANNAS_SECRET_KEY", "abc");
-    kit_set_key(a->k, "abc");
+    ak_env(a, "ANNAS_SECRET_KEY", "abcdefghijklmnop");
+    kit_set_key(a->k, "abcdefghijklmnop");
     script_download(a, "x");
     (void)tail_buf(&g_o, g_big_a, sizeof longer);
     (void)tail_buf(&g_e, g_big_b, 1);
-    int rc = RUN_CLI(ak_deps(a), &g_o, &g_e, "download", MD5, "--name", "abc", "--format", "pdf");
+    int rc = RUN_CLI(ak_deps(a), &g_o, &g_e, "download", MD5, "--name", "abcdefghijklmnop", "--format", "pdf");
     CHECK_EQ_I64(t, rc, 0);
     CHECK_EQ_STR(t, core_buf_cstr(&g_o), longer);
     CHECK(t, !core_buf_overflow(&g_o));
     ak_check_stream(t, a);
-    a = ak_begin(); /* the 33-byte default key becomes 8 bytes: exact fit of the shorter text */
+    a = ak_begin(); /* the 33-byte default key becomes 8 bytes: the same exact fit */
     script_download(a, "x");
     (void)tail_buf(&g_o, g_big_a, sizeof longer);
     (void)tail_buf(&g_e, g_big_b, 1);

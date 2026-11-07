@@ -383,6 +383,54 @@ static void t_ddos_guard_beyond_the_first_1024_bytes_is_not(ctest_t *t) {
     }
 }
 
+/* ---- a rejected response is judged on the first HTTP_CHALLENGE_PREFIX body bytes, and nothing else is read ------- */
+
+/* 500, read-until-close, a body of `len` bytes delivered with the head in ONE read; nothing is scripted after it
+ * (a read past the prefix would be a script mismatch, a network error). */
+static annas_code_t reject_500_close_delimited(kit_t *k, size_t len, bool eof) {
+    static char msg[2048];
+    int h = snprintf(msg, sizeof msg, "HTTP/1.1 500 Server Error\r\n\r\n");
+    memset(msg + h, 'a', len);
+    msg[(size_t)h + len] = '\0';
+    to_dl(k);
+    kit_respond(k, kit_put_str(k, msg, (size_t)h + len), 0);
+    if (eof) {
+        kit_eof(k);
+    }
+    return run(k);
+}
+
+static void t_a_rejected_body_of_exactly_the_prefix_size_is_not_read_further(ctest_t *t) {
+    kit_t *k = kit_begin();
+    kit_check_err(t, k, reject_500_close_delimited(k, 1024, false), ANNAS_E_HTTP, 500, "unexpected HTTP status 500");
+    kit_check_fs_untouched(t, k);
+    k = kit_begin(); /* controls: one byte less, and a longer body, give the same answer */
+    kit_check_err(t, k, reject_500_close_delimited(k, 1023, true), ANNAS_E_HTTP, 500, "unexpected HTTP status 500");
+    kit_check_fs_untouched(t, k);
+    k = kit_begin();
+    kit_check_err(t, k, reject_500_close_delimited(k, 1500, false), ANNAS_E_HTTP, 500, "unexpected HTTP status 500");
+    kit_check_fs_untouched(t, k);
+}
+
+static void t_a_rejected_response_cut_off_in_its_body_is_a_network_error(ctest_t *t) {
+    kit_t *k = kit_begin();
+    to_dl(k);
+    kit_respond(k, kit_head(k, 500, "Server Error", "", 100), 0); /* Content-Length 100, 10 bytes follow */
+    kit_respond(k, "0123456789", 0);
+    kit_eof(k);
+    kit_check_err(t, k, run(k), ANNAS_E_NET, 0, EARLY);
+    kit_check_fs_untouched(t, k);
+}
+
+static void t_a_successful_download_calls_discard_never(ctest_t *t) {
+    kit_t *k = kit_begin();
+    to_dl(k);
+    kit_respond(k, kit_http(k, 200, "OK", "", "hello"), 0);
+    kit_check_ok(t, k, run(k));
+    kit_check_file(t, k, KIT_MD5 ".bin", "hello", 5);
+    CHECK_EQ_U64(t, k->fs.calls[PORTS_FAKE_FS_OP_DISCARD], 0); /* not even a failing call */
+}
+
 CTEST_SUITE("download_err",
     {"api_failure_stops_before_any_download", t_api_failure_stops_before_any_download},
     {"bad_arguments_touch_nothing", t_bad_arguments_touch_nothing},
@@ -405,4 +453,7 @@ CTEST_SUITE("download_err",
     {"null_slices_of_length_zero_are_absent", t_null_slices_of_length_zero_are_absent},
     {"fast_ignores_title_and_format_slices", t_fast_ignores_title_and_format_slices},
     {"ddos_guard_in_a_later_read_is_a_challenge", t_ddos_guard_in_a_later_read_is_a_challenge},
-    {"ddos_guard_beyond_the_first_1024_bytes_is_not", t_ddos_guard_beyond_the_first_1024_bytes_is_not})
+    {"ddos_guard_beyond_the_first_1024_bytes_is_not", t_ddos_guard_beyond_the_first_1024_bytes_is_not},
+    {"a_rejected_body_of_exactly_the_prefix_size_is_not_read_further", t_a_rejected_body_of_exactly_the_prefix_size_is_not_read_further},
+    {"a_rejected_response_cut_off_in_its_body_is_a_network_error", t_a_rejected_response_cut_off_in_its_body_is_a_network_error},
+    {"a_successful_download_calls_discard_never", t_a_successful_download_calls_discard_never})
