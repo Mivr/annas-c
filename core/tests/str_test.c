@@ -212,6 +212,25 @@ static void t_trim_all_or_no_whitespace(ctest_t *t) {
     CHECK_EQ_U64(t, core_str_trim(EMPTY).len, 0);
 }
 
+static void t_trim_empty_slices(ctest_t *t) {
+    static const char buf[] = "x   ";
+    CHECK_EQ_U64(t, core_str_trim((core_str_t){NULL, 0}).len, 0);
+    CHECK_EQ_U64(t, core_str_trim((core_str_t){buf, 0}).len, 0);
+    CHECK_EQ_U64(t, core_str_trim((core_str_t){buf + 3, 0}).len, 0);  /* preceded by whitespace */
+    CHECK_EQ_U64(t, core_str_trim((core_str_t){buf + 4, 0}).len, 0);  /* one past the buffer */
+}
+
+static void t_trim_single_byte_slices(ctest_t *t) {
+    static const char buf[] = "  a  ";
+    core_str_t r = core_str_trim((core_str_t){buf + 1, 1});           /* a single space */
+    CHECK_EQ_U64(t, r.len, 0);
+    r = core_str_trim((core_str_t){buf + 2, 1});                      /* one non-space byte */
+    CHECK_EQ_U64(t, r.len, 1);
+    CHECK(t, r.ptr == buf + 2);
+    CHECK_EQ_U64(t, core_str_trim((core_str_t){buf, 2}).len, 0);      /* all whitespace, in a buffer */
+    CHECK_EQ_U64(t, core_str_trim((core_str_t){buf + 3, 2}).len, 0);
+}
+
 static void t_trim_interior_whitespace_kept(ctest_t *t) {
     core_str_t r = core_str_trim(LIT(" a  \t b "));
     check_bytes(t, r, "a  \t b", 6);
@@ -384,6 +403,8 @@ CTEST_SUITE("str",
     {"trim_each_whitespace_byte", t_trim_each_whitespace_byte},
     {"trim_mixed_whitespace", t_trim_mixed_whitespace},
     {"trim_all_or_no_whitespace", t_trim_all_or_no_whitespace},
+    {"trim_empty_slices", t_trim_empty_slices},
+    {"trim_single_byte_slices", t_trim_single_byte_slices},
     {"trim_interior_whitespace_kept", t_trim_interior_whitespace_kept},
     {"trim_only_ascii_whitespace", t_trim_only_ascii_whitespace},
     {"trim_respects_slice_length", t_trim_respects_slice_length},

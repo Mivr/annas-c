@@ -35,12 +35,11 @@ bool ports_fake_env_init(ports_fake_env_t *e, const ports_fake_env_entry_t *entr
     if (e == NULL) {
         return false;
     }
-    e->entries = NULL;
-    e->count = 0;
+    *e = (ports_fake_env_t){.entries = NULL}; /* count is zero: an unusable fake on every false return below */
     if (entries == NULL && count > 0) {
         return false;
     }
-    if (count > 0 && !entries_valid(entries, count)) {
+    if (!entries_valid(entries, count)) { /* count == 0 is vacuously valid */
         return false;
     }
     e->entries = entries;

@@ -27,11 +27,8 @@ void ports_fake_clock_advance(ports_fake_clock_t *c, uint64_t ms) {
     if (c == NULL) {
         return;
     }
-    if (ms > UINT64_MAX - c->now) {
-        c->now = UINT64_MAX;
-    } else {
-        c->now += ms;
-    }
+    uint64_t sum = c->now + ms; /* wraps iff the true sum exceeds UINT64_MAX; a wrapped sum is below now */
+    c->now = sum < c->now ? UINT64_MAX : sum;
 }
 
 bool ports_fake_clock_set(ports_fake_clock_t *c, uint64_t ms) {
