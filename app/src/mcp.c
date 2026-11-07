@@ -129,7 +129,7 @@ typedef struct {
     bool have_hash;
     const char *msg;      /* set on failure */
     core_str_t echo;      /* points into `buf` */
-    char buf[APP_ECHO_MAX];
+    char buf[APP_ECHO_MAX + 1u]; /* zero-filled (call_t c = {0}): buf[echo.len] is the NUL app_utf8_clean needs */
 } call_t;
 
 static void call_fail(call_t *c, const char *msg) { c->msg = msg; }
@@ -341,10 +341,10 @@ static void reply_open(mctx_t *m) {
 static app_mcp_result_t deliver(mctx_t *m, core_buf_t *out) {
     const app_deps_t *d = &m->s->deps;
     core_str_t fin;
-    bool ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
+    bool ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), &fin);
     if (!ok) {
         nomem(m);
-        ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
+        ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), &fin);
     }
     if (!ok) {
         core_buf_put(out, NULL, 1);

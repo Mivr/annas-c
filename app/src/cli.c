@@ -285,7 +285,12 @@ static app_op_t op_of(const app_cmd_t *cmd) {
     return op;
 }
 
-/* Builds the outcome text in the scratch, finalises it and appends it with one put: success to out, else errout. */
+/* Builds the outcome text in the scratch, finalises it and appends it with one put: success to out, else errout.
+ * The text never overflows its APP_TEXT_CAP bytes: the longest is the download URL, the account JSON and labels. */
+_Static_assert(ANNAS_URL_MAX + ANNAS_ACCOUNT_MAX + 1024u < APP_TEXT_CAP, "an outcome text fits");
+_Static_assert(ANNAS_PATH_MAX + ANNAS_ACCOUNT_MAX + 1024u < APP_TEXT_CAP, "an outcome text fits");
+_Static_assert(ANNAS_MSG_MAX + 64u < APP_TEXT_CAP, "an error line fits");
+
 static int cli_finish(const app_op_t *op, const app_deps_t *deps, app_op_status_t st, core_buf_t *out,
                       core_buf_t *errout) {
     app_scratch_t *sc = app_scratch(deps);
@@ -300,11 +305,7 @@ static int cli_finish(const app_op_t *op, const app_deps_t *deps, app_op_status_
     (void)core_buf_init(&text, sc->u.w.text, sizeof sc->u.w.text);
     app_op_text(op, &sc->u.w.job, st, &text);
     core_buf_put_char(&text, '\n');
-    if (core_buf_overflow(&text)) {
-        core_buf_put(target, NULL, 1);
-    } else {
-        app_emit(deps, target, core_buf_str(&text), true);
-    }
+    app_emit(deps, target, core_buf_str(&text));
     return rc;
 }
 
