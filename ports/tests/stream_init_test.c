@@ -126,6 +126,17 @@ static void t_step_array_is_borrowed_not_copied(ctest_t *t) {
     CHECK_EQ_I64(t, p.ops->connect(p.ctx, core_str_from_cstr("b"), 2, 0), PORTS_OK);
 }
 
+static void t_invalid_script_leaves_a_failed_unusable_stream(ctest_t *t) {
+    ports_fake_stream_t s;
+    ports_fake_mismatch_t m = {PORTS_FAKE_MM_NONE, 7, 7};
+    CHECK(t, !init1(&s, step(PORTS_FAKE_STEP_EXPECT, "", 0, 0, PORTS_OK)));
+    CHECK(t, !ports_fake_stream_done(&s));
+    CHECK(t, ports_fake_stream_mismatch(&s, &m));
+    CHECK_EQ_I64(t, m.kind, PORTS_FAKE_MM_UNEXPECTED_CALL);
+    CHECK_EQ_U64(t, m.step, 0);
+    CHECK_EQ_U64(t, m.offset, 0);
+}
+
 CTEST_SUITE("stream_init",
     {"valid_steps_of_every_kind_are_accepted", t_valid_steps_of_every_kind_are_accepted},
     {"invalid_connect_steps_are_rejected", t_invalid_connect_steps_are_rejected},
@@ -136,4 +147,5 @@ CTEST_SUITE("stream_init",
     {"init_rejects_null_arguments", t_init_rejects_null_arguments},
     {"initial_state", t_initial_state},
     {"port_is_a_const_table_with_this_context", t_port_is_a_const_table_with_this_context},
-    {"step_array_is_borrowed_not_copied", t_step_array_is_borrowed_not_copied})
+    {"step_array_is_borrowed_not_copied", t_step_array_is_borrowed_not_copied},
+    {"invalid_script_leaves_a_failed_unusable_stream", t_invalid_script_leaves_a_failed_unusable_stream})
