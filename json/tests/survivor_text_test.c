@@ -103,6 +103,60 @@ static void t_high_surrogate_then_bad_escape(ctest_t *t) {
     expect_err(t, LIT("{\"\\ud83d\\uZZZZ\":1}"), NULL, JSON_E_UTF8, 2);
 }
 
+static void expect_str(ctest_t *t, core_str_t in, core_str_t want) {
+    const json_value_t *root;
+    size_t off;
+    core_str_t got = {NULL, 0};
+    CHECK_EQ_I64(t, run(in, NULL, &root, &off), JSON_OK);
+    CHECK_EQ_U64(t, off, 0);
+    CHECK(t, json_get_str(root, &got));
+    CHECK(t, core_str_eq(got, want));
+}
+
+static void t_high_surrogate_then_no_low_escape(ctest_t *t) {
+    /* a high surrogate escape must be followed IMMEDIATELY by a backslash, a `u` and four hex digits of a low
+     * surrogate: a backslash and another letter, or a `u` without the backslash, is the lone-high error at the
+     * high one's backslash, even when the bytes behind that pair are the digits of a valid low surrogate */
+    expect_err(t, LIT("\"\\uD83D\\xDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83DxuDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\XDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\UDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\nDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\\\DE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\/DE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\\"DE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\\\uDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D uDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83DuDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\uDBFF\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\\u0041\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uD83D"), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"ab\\uD83D\\xDE00\""), NULL, JSON_E_UTF8, 3);
+    expect_err(t, LIT("\"ab\\uD83DxuDE00\""), NULL, JSON_E_UTF8, 3);
+    expect_err(t, LIT("[\"\\uD83D\\xDE00\"]"), NULL, JSON_E_UTF8, 2);
+    expect_err(t, LIT("{\"\\uD83D\\xDE00\":1}"), NULL, JSON_E_UTF8, 2);
+    expect_err(t, LIT("{\"\\uD83DxuDE00\":1}"), NULL, JSON_E_UTF8, 2);
+    expect_err(t, LIT("{\"k\":\"\\uD83DxuDE00\"}"), NULL, JSON_E_UTF8, 6);
+    expect_err(t, LIT("\"\\ud83d\\xde00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\udbff\\xdfff\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\ud800xudc00\""), NULL, JSON_E_UTF8, 1);
+}
+
+static void t_high_surrogate_then_low_escape(ctest_t *t) {
+    /* the neighbours that are valid: the pair decodes to one 4-byte code point, either case of hex */
+    expect_str(t, LIT("\"\\uD83D\\uDE00\""), LIT("\xf0\x9f\x98\x80"));
+    expect_str(t, LIT("\"\\ud83d\\ude00\""), LIT("\xf0\x9f\x98\x80"));
+    expect_str(t, LIT("\"\\uD83D\\ude00\""), LIT("\xf0\x9f\x98\x80"));
+    expect_str(t, LIT("\"\\uD800\\uDC00\""), LIT("\xf0\x90\x80\x80"));
+    expect_str(t, LIT("\"\\uDBFF\\uDFFF\""), LIT("\xf4\x8f\xbf\xbf"));
+    expect_str(t, LIT("\"a\\uD83D\\uDE00b\""), LIT("a\xf0\x9f\x98\x80" "b"));
+    expect_str(t, LIT("\"\\uD83D\\uDE00\\uD83D\\uDE00\""), LIT("\xf0\x9f\x98\x80\xf0\x9f\x98\x80"));
+    /* a lone low surrogate, or a low then a high, is the error at the first backslash */
+    expect_err(t, LIT("\"\\uDE00\""), NULL, JSON_E_UTF8, 1);
+    expect_err(t, LIT("\"\\uDE00\\uD83D\""), NULL, JSON_E_UTF8, 1);
+}
+
 /* ---- writer ---- */
 
 static char g_out[1u << 12];
@@ -205,6 +259,8 @@ CTEST_SUITE("survivor_text",
     {"truncated_sequence_after_the_input", t_truncated_sequence_after_the_input},
     {"later_continuation_bytes", t_later_continuation_bytes},
     {"high_surrogate_then_bad_escape", t_high_surrogate_then_bad_escape},
+    {"high_surrogate_then_no_low_escape", t_high_surrogate_then_no_low_escape},
+    {"high_surrogate_then_low_escape", t_high_surrogate_then_low_escape},
     {"second_root_value_writes_nothing", t_second_root_value_writes_nothing},
     {"value_without_key_writes_nothing", t_value_without_key_writes_nothing},
     {"writer_truncated_utf8_after_the_string", t_writer_truncated_utf8_after_the_string})
