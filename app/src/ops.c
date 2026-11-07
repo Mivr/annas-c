@@ -3,7 +3,7 @@
 #include <string.h>
 
 core_str_t app_key(const app_deps_t *d) {
-    core_str_t v = {NULL, 0};
+    core_str_t v; /* set by get when it finds the name (ports.h), else below */
     bool found = d != NULL && d->env.ops != NULL && d->env.ops->get != NULL &&
                  d->env.ops->get(d->env.ctx, core_str_from_cstr("ANNAS_SECRET_KEY"), &v);
     if (!found) {
@@ -56,7 +56,7 @@ static bool pass_write(core_str_t src, const pass_t *p, char *dst, size_t cap, s
     while (rest.len > 0) {
         size_t m = match_at(rest, p);
         size_t w = m > 0 ? sizeof red - 1u : 1u;
-        size_t step = m > 0 ? m : 1u;
+        size_t step = m > 0 ? m : w; /* w is 1 without a match */
         if (cap - n < w) {
             return false;
         }

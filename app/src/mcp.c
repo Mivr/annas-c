@@ -380,9 +380,7 @@ app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out) 
         return APP_MCP_E_ARG;
     }
     m.s = s;
-    if (!core_arena_reset_to(&s->arena, 0)) {
-        return APP_MCP_E_ARG;
-    }
+    (void)core_arena_reset_to(&s->arena, 0); /* fails only for a NULL arena or a mark above used: neither here */
     if (line.len > APP_MCP_LINE_MAX) {
         reply_open(&m);
         err_plain(&m, "-32600", "Invalid Request: line longer than 1048576 bytes");
