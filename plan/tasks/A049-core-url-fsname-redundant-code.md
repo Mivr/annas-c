@@ -6,9 +6,8 @@ current gate checkout `/var/tmp/src/c-rigor-gate` (read-only), `docs/mutate.md`.
 `gate` submodule.
 
 ## Why
-The survivor tests left 72 surviving mutants in `//core:core`, `//url:url` and `//fsname:fsname` (`/var/tmp/cache/A049/survivors.txt`, read-only: rule,
-file, line, function, operator, original, replacement, id). The test author argued most of them equivalent
-(`/var/tmp/cache/A049/notes.md`). L3 needs zero survivors, and every equivalent mutant left needs a signed approval. In
+The orchestrator's T070 audit grade left 10 surviving mutants in `//core:core`, `//url:url` and `//fsname:fsname` (`/var/tmp/cache/A049/survivors.tsv`, read-only: rule,
+file, line, function, operator, original, replacement, id). A046 argued the url and fsname ones equivalent; the 5 core ones are untriaged (`/var/tmp/cache/A049/notes.md`). L3 needs zero survivors, and every equivalent mutant left needs a signed approval. In
 this project a surviving mutant is either a missing test or **dead or redundant code**. Most of these are the second kind:
 - a check that an earlier check already decides;
 - an initialiser that is always overwritten;
