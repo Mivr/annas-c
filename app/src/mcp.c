@@ -129,7 +129,7 @@ typedef struct {
     bool have_hash;
     const char *msg;      /* set on failure */
     core_str_t echo;      /* points into `buf` */
-    char buf[APP_ECHO_MAX];
+    char buf[APP_ECHO_MAX + 1u]; /* zero-filled (call_t c = {0}): buf[echo.len] is the NUL app_utf8_clean needs */
 } call_t;
 
 static void call_fail(call_t *c, const char *msg) { c->msg = msg; }

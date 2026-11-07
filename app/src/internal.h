@@ -64,15 +64,16 @@ core_str_t app_key(const app_deps_t *d);
 /* The view of deps->scratch (valid only after app_scratch_ok). */
 bool app_scratch_ok(const app_deps_t *d);
 app_scratch_t *app_scratch(const app_deps_t *d);
-/* The two scrubbing passes over `src` (see app.h): `res` is the final text, at most APP_FIN_MAX bytes, in `src` or
- * in the scratch; false when it does not fit. `in_scratch`: src lives in the work area of the scratch. */
+/* The two scrubbing passes over `src` (see app.h): `res` is the final text, at most APP_FIN_MAX bytes, in `src`
+ * (no key, or a pass that finds nothing) or in the scratch; false when it does not fit. `in_scratch`: src lives in the
+ * work area of the scratch (pass 1 then copies it). */
 bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str_t *res);
-/* Finalises `text` and appends it with ONE put; a text that does not fit puts dst into its overflow state. */
-void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text, bool in_scratch);
+/* Finalises a CLI outcome text (always fits, see ops.c) and appends it with ONE put. */
+void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text);
 
 /* The first APP_ECHO_MAX bytes of `in`, bytes < 0x20 and 0x7f as '?', into out[0..APP_ECHO_MAX); returns the length. */
 size_t app_echo_cut(core_str_t in, char *out);
-/* Replaces every byte that is not part of a well-formed UTF-8 sequence by '?'. */
+/* Replaces every byte that is not part of a well-formed UTF-8 sequence by '?'. s[n] must be readable and 0. */
 void app_utf8_clean(char *s, size_t n);
 /* Appends s as the inside of a JSON string (the writer's escaping of json/json.h). */
 void app_put_escaped(core_buf_t *b, core_str_t s);

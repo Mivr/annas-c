@@ -66,10 +66,12 @@ bool app_dotenv_parse(core_str_t file, app_dotenv_t *out) {
     if (file.ptr == NULL && file.len > 0) {
         return false;
     }
-    while (rest.len > 0) {
+    bool more;
+    do {
         core_str_t line;
         app_dotenv_entry_t e;
-        (void)core_str_split_once(rest, core_str_from_cstr("\n"), &line, &rest); /* not found: line = rest, rest empty */
+        /* Not found: line = rest, rest empty, and this is the last line (an empty one is skipped like any other). */
+        more = core_str_split_once(rest, core_str_from_cstr("\n"), &line, &rest);
         if (!parse_line(line, &e)) {
             continue;
         }
@@ -79,7 +81,7 @@ bool app_dotenv_parse(core_str_t file, app_dotenv_t *out) {
         }
         out->entries[out->count] = e;
         out->count++;
-    }
+    } while (more);
     return true;
 }
 
