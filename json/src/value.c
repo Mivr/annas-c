@@ -16,11 +16,11 @@ const json_value_t *json_at(const json_value_t *v, size_t i) {
 }
 
 core_str_t json_key_at(const json_value_t *v, size_t i) {
-    core_str_t e = {NULL, 0};
-    if (v == NULL || v->type != JSON_OBJECT || i >= v->u.c.n) {
-        return e;
+    core_str_t k = {NULL, 0};
+    if (v != NULL && v->type == JSON_OBJECT && i < v->u.c.n) {
+        k = v->u.c.items[i]->key;
     }
-    return v->u.c.items[i]->key;
+    return k;
 }
 
 const json_value_t *json_obj_get(const json_value_t *v, core_str_t key) {
