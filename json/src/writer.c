@@ -9,16 +9,12 @@ static bool usable(const json_writer_t *w) { return w != NULL && !w->failed; }
 static void set_failed(json_writer_t *w) { w->failed = true; }
 
 bool json_w_init(json_writer_t *w, core_buf_t *b) {
-    size_t i;
     if (w == NULL) {
         return false;
     }
+    /* kind[] and flags[] are not cleared: begin() sets both for a level before anything reads them. */
     w->buf = b;
     w->depth = 0;
-    for (i = 0; i < JSON_MAX_DEPTH; i++) {
-        w->kind[i] = 0;
-        w->flags[i] = 0;
-    }
     w->root_done = false;
     w->failed = b == NULL;
     return b != NULL;
@@ -51,7 +47,7 @@ static void post_value(json_writer_t *w) {
         w->root_done = true;
         return;
     }
-    w->flags[w->depth - 1] = (unsigned char)((w->flags[w->depth - 1] | F_ITEMS) & ~F_KEY);
+    w->flags[w->depth - 1] = F_ITEMS; /* the flags are only ITEMS and KEY: one value done sets the first, clears the second */
 }
 
 static void begin(json_writer_t *w, unsigned char kind, char open) {
@@ -89,8 +85,13 @@ void json_w_end_object(json_writer_t *w) { end(w, K_OBJ, '}'); }
 void json_w_begin_array(json_writer_t *w) { begin(w, K_ARR, '['); }
 void json_w_end_array(json_writer_t *w) { end(w, K_ARR, ']'); }
 
+/* json_utf8_seq_len needs a non-NULL pointer and at least one byte, so an empty slice (any pointer, NULL
+ * included) is valid and a NULL slice with a length is not. */
 static bool valid_utf8(core_str_t s) {
     size_t i = 0, len;
+    if (s.ptr == NULL) {
+        return s.len == 0;
+    }
     while (i < s.len) {
         len = json_utf8_seq_len((const unsigned char *)s.ptr + i, s.len - i);
         if (len == 0) {
@@ -105,7 +106,7 @@ static bool plain(unsigned char c) { return c >= 0x20 && c != '"' && c != '\\'; 
 
 static void put_escape(core_buf_t *b, unsigned char c) {
     static const char hex[] = "0123456789abcdef";
-    char e[6] = {'\\', 'u', '0', '0', '0', '0'};
+    char e[6] = {'\\', 'u', '0', '0'}; /* e[4], e[5] are set below */
     if (c == '"' || c == '\\') {
         e[1] = (char)c;
         core_buf_put(b, e, 2);
@@ -150,7 +151,7 @@ void json_w_key(json_writer_t *w, core_str_t key) {
     }
     put_quoted(w->buf, key);
     core_buf_put_char(w->buf, ':');
-    w->flags[d - 1] = (unsigned char)(w->flags[d - 1] | F_KEY);
+    w->flags[d - 1] = F_KEY; /* ITEMS is not read while KEY is set; post_value sets it again */
 }
 
 void json_w_string(json_writer_t *w, core_str_t s) {
