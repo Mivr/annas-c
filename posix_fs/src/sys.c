@@ -48,10 +48,9 @@ static int64_t sys_fsync(void *ctx, int fd) {
 static int64_t sys_link_tmp(void *ctx, int fd, int dir_fd, const char *name) {
     (void)ctx;
     char path[48];
-    int n = snprintf(path, sizeof path, "/proc/self/fd/%d", fd);
-    if (n < 0 || (size_t)n >= sizeof path) {
-        return -(int64_t)EINVAL;
-    }
+    /* "/proc/self/fd/" plus the digits and sign of any int always fit: snprintf can neither fail nor truncate. */
+    _Static_assert(sizeof path >= sizeof "/proc/self/fd/" + 3 * sizeof(int), "path buffer holds any descriptor");
+    (void)snprintf(path, sizeof path, "/proc/self/fd/%d", fd);
     return linkat(AT_FDCWD, path, dir_fd, name, AT_SYMLINK_FOLLOW) != 0 ? fail_errno() : 0;
 }
 
