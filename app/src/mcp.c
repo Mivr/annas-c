@@ -81,11 +81,15 @@ static void rt_list(mctx_t *m, const json_value_t *root) {
     result_raw(m, TOOLS_LIST);
 }
 
+/* `cand` when the client asked for exactly that version, else `other`. */
+static const char *offer(core_str_t ver, const char *cand, const char *other) {
+    return core_str_eq(ver, cs(cand)) ? cand : other;
+}
+
 static void rt_initialize(mctx_t *m, const json_value_t *root) {
-    static const char *const supported[] = {"2025-06-18", "2025-03-26", "2024-11-05"};
     const json_value_t *params = json_obj_get(root, cs("params"));
-    core_str_t ver = {NULL, 0};
-    const char *use = supported[0];
+    core_str_t ver;
+    const char *use;
     if (json_type(params) != JSON_OBJECT) {
         err_plain(m, "-32602", "Invalid params: params must be an object");
         return;
@@ -94,9 +98,7 @@ static void rt_initialize(mctx_t *m, const json_value_t *root) {
         err_plain(m, "-32602", "Invalid params: protocolVersion must be a string");
         return;
     }
-    for (size_t i = 0; i < sizeof supported / sizeof supported[0]; i++) {
-        use = core_str_eq(ver, cs(supported[i])) ? supported[i] : use;
-    }
+    use = offer(ver, "2025-03-26", offer(ver, "2024-11-05", "2025-06-18")); /* else the newest */
     head(m);
     put_cs(&m->rb, ",\"result\":" INIT_RESULT_HEAD);
     put_cs(&m->rb, use);
@@ -130,16 +132,13 @@ typedef struct {
     char buf[APP_ECHO_MAX];
 } call_t;
 
-static bool call_fail(call_t *c, const char *msg) {
-    c->msg = msg;
-    return false;
-}
+static void call_fail(call_t *c, const char *msg) { c->msg = msg; }
 
-static bool call_fail_echo(call_t *c, const char *msg, core_str_t name) {
+static void call_fail_echo(call_t *c, const char *msg, core_str_t name) {
     c->echo.len = app_echo_cut(name, c->buf);
     app_utf8_clean(c->buf, c->echo.len);
     c->echo.ptr = c->buf;
-    return call_fail(c, msg);
+    call_fail(c, msg);
 }
 
 static bool arg_apply(call_t *c, arg_id_t id, const json_value_t *v) {
@@ -177,38 +176,47 @@ static bool args_visit(call_t *c, const json_value_t *args, bool book) {
         core_str_t key = json_key_at(args, i);
         const argdef_t *d = find_arg(key, book);
         if (d == NULL) {
-            return call_fail_echo(c, "Invalid params: unknown argument: ", key);
+            call_fail_echo(c, "Invalid params: unknown argument: ", key);
+            return false;
         }
         if (!arg_apply(c, d->id, json_at(args, i))) {
-            return call_fail(c, d->bad);
+            call_fail(c, d->bad);
+            return false;
         }
     }
     return true;
 }
 
 static bool call_check(call_t *c, const json_value_t *params) {
-    core_str_t name = {NULL, 0};
+    core_str_t name;
     const json_value_t *args;
     bool book;
     if (json_type(params) != JSON_OBJECT) {
-        return call_fail(c, "Invalid params: params must be an object");
+        call_fail(c, "Invalid params: params must be an object");
+        return false;
     }
     if (!json_get_str(json_obj_get(params, cs("name")), &name)) {
-        return call_fail(c, "Invalid params: name must be a string");
+        call_fail(c, "Invalid params: name must be a string");
+        return false;
     }
     book = core_str_eq(name, cs("book_download"));
     if (!book && !core_str_eq(name, cs("fast_download_url"))) {
-        return call_fail_echo(c, "Invalid params: unknown tool: ", name);
+        call_fail_echo(c, "Invalid params: unknown tool: ", name);
+        return false;
     }
     c->op.download = book;
     args = json_obj_get(params, cs("arguments"));
     if (args != NULL && json_type(args) != JSON_OBJECT) {
-        return call_fail(c, "Invalid params: arguments must be an object");
+        call_fail(c, "Invalid params: arguments must be an object");
+        return false;
     }
     if (args != NULL && !args_visit(c, args, book)) {
         return false;
     }
-    return c->have_hash || call_fail(c, "Invalid params: hash is required");
+    if (!c->have_hash) {
+        call_fail(c, "Invalid params: hash is required");
+    }
+    return c->have_hash;
 }
 
 /* The -32603 reply that replaces whatever was being built (id null). */
@@ -220,7 +228,7 @@ static void nomem(mctx_t *m) {
 
 /* Length of the decoded id (a string), of the text of a number, 4 for null. */
 static size_t id_len(const json_value_t *id) {
-    core_str_t v = {NULL, 0};
+    core_str_t v;
     if (json_get_str(id, &v) || json_number_text(id, &v)) {
         return v.len;
     }
@@ -287,7 +295,7 @@ static void route(mctx_t *m, const json_value_t *root, core_str_t method) {
 static bool dispatch(mctx_t *m, const json_value_t *root) {
     const json_value_t *idv = json_obj_get(root, cs("id"));
     json_type_t it = json_type(idv);
-    core_str_t v = {NULL, 0};
+    core_str_t v;
     if (json_type(root) == JSON_ARRAY) {
         err_plain(m, "-32600", "Invalid Request: batch requests are not supported");
     } else if (json_type(root) != JSON_OBJECT) {
@@ -324,8 +332,7 @@ static void reply_open(mctx_t *m) {
     core_arena_t *a = &m->s->arena;
     m->left = core_arena_capacity(a) - core_arena_used(a);
     m->cap = m->left;
-    m->mem = m->cap > 0 ? core_arena_alloc(a, m->cap, 1) : NULL;
-    m->cap = m->mem != NULL ? m->cap : 0;
+    m->mem = core_arena_alloc(a, m->cap, 1); /* NULL for cap 0; else it fits exactly */
     (void)core_buf_init(&m->rb, (char *)m->mem, m->cap);
 }
 
@@ -333,7 +340,7 @@ static void reply_open(mctx_t *m) {
  * -32603 reply, and when even that does not fit nothing is appended. */
 static app_mcp_result_t deliver(mctx_t *m, core_buf_t *out) {
     const app_deps_t *d = &m->s->deps;
-    core_str_t fin = {NULL, 0};
+    core_str_t fin;
     bool ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
     if (!ok) {
         nomem(m);
@@ -355,11 +362,9 @@ bool app_mcp_init(app_mcp_t *s, const app_deps_t *deps, void *parse_mem, size_t 
     return core_arena_init(&s->arena, parse_mem, parse_cap);
 }
 
-static void compose(mctx_t *m, size_t line_len, json_err_t je, const json_value_t *root, bool *replied) {
-    *replied = true;
-    if (line_len > APP_MCP_LINE_MAX) {
-        err_plain(m, "-32600", "Invalid Request: line longer than 1048576 bytes");
-    } else if (je == JSON_E_NOMEM) {
+/* The reply for a line that has been parsed (or not): `replied` stays true unless the line is a notification. */
+static void compose(mctx_t *m, json_err_t je, const json_value_t *root, bool *replied) {
+    if (je == JSON_E_NOMEM) {
         err_plain(m, "-32603", MSG_INTERNAL_NOMEM);
     } else if (je != JSON_OK) {
         err_plain(m, "-32700", "Parse error");
@@ -370,9 +375,6 @@ static void compose(mctx_t *m, size_t line_len, json_err_t je, const json_value_
 
 app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out) {
     mctx_t m = {0};
-    json_limits_t lim = json_limits_default();
-    const json_value_t *root = NULL;
-    json_err_t je = JSON_OK;
     bool replied = true;
     if (s == NULL || out == NULL || (line.ptr == NULL && line.len > 0)) {
         return APP_MCP_E_ARG;
@@ -381,14 +383,19 @@ app_mcp_result_t app_mcp_handle(app_mcp_t *s, core_str_t line, core_buf_t *out) 
     if (!core_arena_reset_to(&s->arena, 0)) {
         return APP_MCP_E_ARG;
     }
-    if (line.len <= APP_MCP_LINE_MAX) {
-        if (blank_line(line)) {
-            return APP_MCP_NO_REPLY;
-        }
+    if (line.len > APP_MCP_LINE_MAX) {
+        reply_open(&m);
+        err_plain(&m, "-32600", "Invalid Request: line longer than 1048576 bytes");
+    } else if (blank_line(line)) {
+        return APP_MCP_NO_REPLY;
+    } else {
+        json_limits_t lim = json_limits_default();
+        const json_value_t *root = NULL;
+        json_err_t je;
         lim.max_input = APP_MCP_LINE_MAX;
         je = json_parse(&s->arena, line, &lim, &root, NULL);
+        reply_open(&m);
+        compose(&m, je, root, &replied);
     }
-    reply_open(&m);
-    compose(&m, line.len, je, root, &replied);
     return replied ? deliver(&m, out) : APP_MCP_NO_REPLY;
 }
