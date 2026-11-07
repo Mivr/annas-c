@@ -1,13 +1,10 @@
 #include "http/src/internal.h"
 
-static char lower_ascii(char c) {
-    return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
-}
-
-static bool match_ci_at(core_str_t hay, size_t at, const char *needle, size_t n) {
+/* True if hay[at..at+n) is `lower` in any letter case; `upper` is the same text in capitals. */
+static bool match_ci_at(core_str_t hay, size_t at, const char *lower, const char *upper, size_t n) {
     size_t i;
     for (i = 0; i < n; i++) {
-        if (lower_ascii(hay.ptr[at + i]) != needle[i]) {
+        if (hay.ptr[at + i] != lower[i] && hay.ptr[at + i] != upper[i]) {
             return false;
         }
     }
@@ -15,17 +12,13 @@ static bool match_ci_at(core_str_t hay, size_t at, const char *needle, size_t n)
 }
 
 static bool has_ddos_guard(core_str_t body) {
-    static const char k_text[] = "ddos-guard";
-    size_t n = sizeof k_text - 1;
+    static const char k_lower[] = "ddos-guard";
+    static const char k_upper[] = "DDOS-GUARD";
+    size_t n = sizeof k_lower - 1;
     size_t at;
-    if (body.len > HTTP_CHALLENGE_PREFIX) {
-        body.len = HTTP_CHALLENGE_PREFIX;
-    }
-    if (body.len < n) {
-        return false;
-    }
-    for (at = 0; at + n <= body.len; at++) {
-        if (match_ci_at(body, at, k_text, n)) {
+    /* Only the first HTTP_CHALLENGE_PREFIX bytes count; a body shorter than the needle runs no iteration. */
+    for (at = 0; at + n <= body.len && at + n <= HTTP_CHALLENGE_PREFIX; at++) {
+        if (match_ci_at(body, at, k_lower, k_upper, n)) {
             return true;
         }
     }
