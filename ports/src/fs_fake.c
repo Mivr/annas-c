@@ -2,7 +2,7 @@
 
 #include "ports/fakes.h"
 
-_Static_assert(PORTS_FS_OK == 0, "a zeroed injection table means no injection");
+enum { FS_OPS = PORTS_FAKE_FS_OP_DISCARD + 1 }; /* one counter and one injection slot per op */
 
 static unsigned char *slot_data(const ports_fake_fs_t *fs, size_t idx) { return fs->store + idx * fs->slot_cap; }
 
@@ -168,8 +168,18 @@ bool ports_fake_fs_init(ports_fake_fs_t *fs, void *storage, size_t cap) {
     if (fs == NULL || storage == NULL || cap < PORTS_FAKE_FS_SLOTS) {
         return false;
     }
-    /* every other field starts at zero: free slots, no calls, no injection (PORTS_FS_OK), no commits or discards */
-    *fs = (ports_fake_fs_t){.store = (unsigned char *)storage, .slot_cap = cap / PORTS_FAKE_FS_SLOTS, .next_id = 1u};
+    for (size_t i = 0; i != PORTS_FAKE_FS_SLOTS; i++) {
+        clear_slot(&fs->slots[i]);
+    }
+    fs->store = (unsigned char *)storage;
+    fs->slot_cap = cap / PORTS_FAKE_FS_SLOTS;
+    fs->next_id = 1u;
+    for (size_t k = 0; k != FS_OPS; k++) {
+        fs->calls[k] = 0u;
+        fs->inject_nth[k] = 0u; /* inject_err[k] is read only after an injection set it together with inject_nth[k] */
+    }
+    fs->commits = 0u;
+    fs->discards = 0u;
     return true;
 }
 
