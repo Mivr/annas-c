@@ -136,6 +136,22 @@ c_test(
 )
 
 c_test(
+    name = "wall_bound_test",
+    srcs = [
+        "tests/wall_bound_test.c",
+        "tests/kit_net.c",
+        "tests/kit_peer.c",
+    ],
+    deps = [
+        ":testkit",
+        ":tls_stream",
+        "//core:core",
+        "//ports:ports",
+        "gate//third_party/tls_peer:tls_peer",
+    ],
+)
+
+c_test(
     name = "host_test",
     srcs = [
         "tests/host_test.c",

@@ -29,6 +29,8 @@ static const tls_obj_t *cobj_of(const tls_stream_t *s)
 
 /* ---- certificate time: the injected wall clock, installed as mbedTLS's time function ---- */
 
+#define WALL_MAX_SECONDS UINT64_C(253402300799) /* 9999-12-31T23:59:59Z; later is treated as unknown (0) */
+
 static mbedtls_time_t wall_now(mbedtls_time_t *out)
 {
     const tls_obj_t *o = tls_active();
@@ -36,6 +38,9 @@ static mbedtls_time_t wall_now(mbedtls_time_t *out)
     mbedtls_time_t v;
     if (o != NULL) {
         secs = o->cfg.wall.unix_seconds(o->cfg.wall.ctx);
+    }
+    if (secs > WALL_MAX_SECONDS) {
+        secs = 0;
     }
     v = (mbedtls_time_t) secs;
     if (out != NULL) {
