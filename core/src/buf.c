@@ -59,11 +59,10 @@ bool core_buf_overflow(const core_buf_t *b) {
 
 core_str_t core_buf_str(const core_buf_t *b) {
     core_str_t r = {NULL, 0};
-    if (b == NULL || b->cap == 0) {
-        return r;
+    if (b != NULL && b->cap != 0) {
+        r.ptr = b->data;
+        r.len = b->len;
     }
-    r.ptr = b->data;
-    r.len = b->len;
     return r;
 }
 
