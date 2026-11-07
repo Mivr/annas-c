@@ -94,14 +94,19 @@ static void t_custom_base(ctest_t *t) {
 
 static void t_key_is_percent_encoded(ctest_t *t) {
     kit_t *k = kit_begin();
-    kit_set_key(k, "a b+c/d=e&f%g#h?i\xc3\xa9");
+    kit_set_key(k, "aZ09.b_c~d-e"); /* every key byte is URL-unreserved: pct_encode(key) == key, sent as it is */
     kit_connect(k, "annas-archive.gl", 443);
     kit_expect(k, "GET /dyn/api/fast_download.json?md5=0123456789abcdef0123456789abcdef"
-                  "&key=a%20b%2Bc%2Fd%3De%26f%25g%23h%3Fi%C3%A9 HTTP/1.1\r\nHost: annas-archive.gl\r\n"
+                  "&key=aZ09.b_c~d-e HTTP/1.1\r\nHost: annas-archive.gl\r\n"
                   "User-Agent: annas-c/0.1\r\nAccept: */*\r\nConnection: close\r\n\r\n");
     kit_respond(k, OKRESP(k), 0);
     annas_request_t r = kit_req(KIT_MD5);
     expect_success(t, k, kit_fast(k, &r));
+    k = kit_begin(); /* a byte that would need percent-encoding is not a key at all: no request is made */
+    kit_set_key(k, "a b+c/d=e&f%g#h?i\xc3\xa9");
+    r = kit_req(KIT_MD5);
+    kit_check_err(t, k, kit_fast(k, &r), ANNAS_E_CONFIG, 0,
+                  "ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -");
 }
 
 static void t_title_and_format_are_ignored(ctest_t *t) {

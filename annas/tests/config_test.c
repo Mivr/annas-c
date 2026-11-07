@@ -202,11 +202,13 @@ static void t_key_is_redacted_from_echoes(ctest_t *t) {
                 "ANNAS_BASE_URL is not a valid domain, got: ZZ.REDACTED!");
     expect_fail(t, load("ZZ.zzfakekeyzz!", "zzfakekeyzz", NULL, false, 0), ANNAS_E_CONFIG,
                 "ANNAS_BASE_URL is not a valid domain, got: ZZ.REDACTED!");
-    /* percent-encoded form of a key with specials */
-    expect_fail(t, load(NULL, "fake key/1", "fake%20key%2F1", true, 0), ANNAS_E_CONFIG,
+    /* every key byte is URL-unreserved, so the percent-encoded form is the key itself: one redaction, no more */
+    expect_fail(t, load(NULL, "fake-key.1_~", "fake-key.1_~", true, 0), ANNAS_E_CONFIG,
                 "ANNAS_DOWNLOAD_PATH must be an absolute path, got: REDACTED");
-    expect_fail(t, load(NULL, "fake key/1", "fake key/1", true, 0), ANNAS_E_CONFIG,
-                "ANNAS_DOWNLOAD_PATH must be an absolute path, got: REDACTED");
+    expect_fail(t, load(NULL, "fake-key.1_~", "x/fake-key.1_~/fake-key.1_~", true, 0), ANNAS_E_CONFIG,
+                "ANNAS_DOWNLOAD_PATH must be an absolute path, got: x/REDACTED/REDACTED");
+    expect_fail(t, load(NULL, "fake-key.1_~", "fake%2Dkey.1_~", true, 0), ANNAS_E_CONFIG, /* escaped bytes: not the key */
+                "ANNAS_DOWNLOAD_PATH must be an absolute path, got: fake%2Dkey.1_~");
     /* control: a different value is not touched */
     expect_fail(t, load(NULL, "zzfakekeyzz", "zzfakekey", true, 0), ANNAS_E_CONFIG,
                 "ANNAS_DOWNLOAD_PATH must be an absolute path, got: zzfakekey");

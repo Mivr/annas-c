@@ -136,6 +136,76 @@ static void t_a_redacted_title_collides_like_any_other_name(ctest_t *t) {
     kit_check_no_partial(t, k, 1);
 }
 
+/* ---- the complete final name (second pass) ---------------------------------------------------------------------- */
+
+/* Download with an optional title and format; the committed name is exactly `name` and no result string holds the key. */
+static void name_case(ctest_t *t, const char *key, const char *title, const char *format, const char *name) {
+    static char text[1024];
+    kit_t *k = kit_begin();
+    kit_set_key(k, key);
+    kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", kit_ok_json(k, DLURL, NULL))); /* no "_" in an account text */
+    kit_get(k, "a.example.org", 443, "/x", kit_http(k, 200, "OK", "", "data"));
+    annas_request_t r = kit_req(KIT_MD5);
+    if (title != NULL) {
+        r.title = core_str_from_cstr(title);
+    }
+    if (format != NULL) {
+        r.format = core_str_from_cstr(format);
+    }
+    kit_check_ok(t, k, kit_download(k, &r));
+    kit_check_file(t, k, name, "data", 4);
+    CHECK_EQ_STR(t, k->dl.name, name);
+    CHECK_EQ_U64(t, k->dl.name_len, strlen(name));
+    CHECK(t, !kit_contains(k->dl.name, key));
+    CHECK(t, !kit_contains(k->dl.path, key));
+    core_buf_t b;
+    CHECK(t, core_buf_init(&b, text, sizeof text));
+    CHECK(t, annas_format_downloaded(&b, &k->dl));
+    CHECK(t, !kit_contains(core_buf_cstr(&b), key));
+}
+
+static void t_a_key_made_by_sanitising_is_redacted(ctest_t *t) {
+    name_case(t, "a_b", "a/b", "pdf", "REDACTED.pdf");
+    name_case(t, "a_b", "x a/b y", "pdf", "x REDACTED y.pdf");
+    name_case(t, "a_b", "a:b a|b", "epub", "REDACTED REDACTED.epub");
+    name_case(t, "a_b", "a/b", NULL, "REDACTED.bin");
+    name_case(t, "_", "a/b", "pdf", "aREDACTEDb.pdf");
+    name_case(t, "__", "a//b", "pdf", "aREDACTEDb.pdf");
+    name_case(t, "et_c", "et/c x", "txt", "REDACTED x.txt");
+    name_case(t, "q-r", "q-r", "pdf", "REDACTED.pdf"); /* the first pass already removed it */
+}
+
+static void t_a_key_inside_the_md5_is_redacted(ctest_t *t) {
+    name_case(t, "abcdef0123", NULL, NULL, "0123456789REDACTED456789abcdef.bin");
+    name_case(t, "abcdef0123", "", "pdf", "0123456789REDACTED456789abcdef.pdf");
+    name_case(t, "0123456789abcdef0123456789abcdef", NULL, "pdf", "REDACTED.pdf");
+    name_case(t, "89ab", NULL, NULL, "01234567REDACTEDcdef01234567REDACTEDcdef.bin");
+    name_case(t, "abcdef", NULL, NULL, "0123456789REDACTED0123456789REDACTED.bin");
+    name_case(t, "0123", NULL, "pdf", "REDACTED456789abcdefREDACTED456789abcdef.pdf");
+}
+
+static void t_a_key_equal_to_the_format_is_redacted(ctest_t *t) {
+    name_case(t, "pdf", "Book", "pdf", "Book.REDACTED");
+    name_case(t, "pdf", "Book", "PDF", "Book.REDACTED");   /* the format is lower-cased before the pass */
+    name_case(t, "pdf", "pdf", "pdf", "REDACTED.REDACTED");
+    name_case(t, "bin", "Book", NULL, "Book.REDACTED");
+    name_case(t, "bin", NULL, NULL, KIT_MD5 ".REDACTED");
+    name_case(t, "df", "Book", "pdf", "Book.pREDACTED");
+    name_case(t, ".pdf", "Book", "pdf", "BookREDACTED");
+    name_case(t, "k.p", "Book.pdf", "pdf", "BooREDACTEDdf.pdf"); /* the title pass; the name pass finds nothing */
+}
+
+static void t_the_redacted_name_is_cut_at_the_name_limit(ctest_t *t) {
+    static char title[260], want[260];
+    memset(title, '/', 200); /* sanitised to 200 underscores, then ".pdf" */
+    title[200] = '\0';
+    for (size_t i = 0; i < sizeof want - 1u; i++) {
+        want[i] = "REDACTED"[i % 8u];
+    }
+    want[ANNAS_NAME_MAX - 1u] = '\0'; /* ANNAS_NAME_MAX-1 bytes */
+    name_case(t, "_", title, "pdf", want);
+}
+
 /* ---- the redirect ---------------------------------------------------------------------------------------------- */
 
 /* One redirect from a.example.org with `status` and `loc`; the script has no step for any other host. */
@@ -166,6 +236,14 @@ static void t_a_target_containing_the_key_is_not_followed(ctest_t *t) {
         {"zq9", "https://b.example.org/a?x=1&y=2&k=zq9", 302},
         {"zq9", "https://b.example.org:8443/zq9", 302},
         {"zq9", "https://b.example.org/zzq9", 302},
+        {"AbC", "https://abc.example.org/y", 302},   /* the host is compared without case */
+        {"AbC", "https://ABC.example.org/y", 302},
+        {"AbC", "https://xAbCx.example.org/y", 301},
+        {"AbC", "https://b.AbC.example.org/y", 307},
+        {"zq9", "https://ZQ9.example.org/y", 302},
+        {"zq9", "https://B.example.org/zq9", 302},  /* a key in the path, exactly: still caught */
+        {"AbC", "https://b.example.org/AbC", 302},
+        {"AbC", "https://b.example.org/a?x=AbC", 302},
         {"zq9", "/zq9", 302},
         {"zq9", "/a/zq9?x=1", 302},
         {"zq9", "/a?k=zq9", 301},
@@ -263,13 +341,33 @@ static void t_near_misses_in_a_target_are_followed(ctest_t *t) {
     }
 }
 
+/* Path and query are compared exactly: another case of the key there is not the key. */
+static void t_path_and_query_compare_exactly(ctest_t *t) {
+    static const char *const loc[] = {"https://b.example.org/abc", "https://b.example.org/ABC", "/a?x=abc", "/aBC"};
+    for (size_t i = 0; i < COUNT(loc); i++) {
+        kit_t *k = kit_begin();
+        redirect_once(k, "AbC", 302, loc[i]);
+        const char *host = loc[i][0] == '/' ? "a.example.org" : "b.example.org";
+        const char *target = loc[i][0] == '/' ? loc[i] : strchr(loc[i] + 8, '/');
+        kit_get(k, host, 443, target, kit_http(k, 200, "OK", "", "data"));
+        annas_request_t r = kit_req(KIT_MD5);
+        kit_check_ok(t, k, kit_download(k, &r));
+        kit_check_file(t, k, KIT_MD5 ".bin", "data", 4);
+    }
+}
+
 CTEST_SUITE("key_flow",
     {"title_containing_the_key_is_redacted", t_title_containing_the_key_is_redacted},
     {"long_key_in_the_title_is_redacted", t_long_key_in_the_title_is_redacted},
     {"redaction_comes_before_the_cut_at_200_bytes", t_redaction_comes_before_the_cut_at_200_bytes},
+    {"a_key_made_by_sanitising_is_redacted", t_a_key_made_by_sanitising_is_redacted},
+    {"a_key_inside_the_md5_is_redacted", t_a_key_inside_the_md5_is_redacted},
+    {"a_key_equal_to_the_format_is_redacted", t_a_key_equal_to_the_format_is_redacted},
+    {"the_redacted_name_is_cut_at_the_name_limit", t_the_redacted_name_is_cut_at_the_name_limit},
     {"a_redacted_title_collides_like_any_other_name", t_a_redacted_title_collides_like_any_other_name},
     {"a_target_containing_the_key_is_not_followed", t_a_target_containing_the_key_is_not_followed},
     {"a_long_key_in_the_target_is_not_followed", t_a_long_key_in_the_target_is_not_followed},
     {"the_check_applies_to_every_hop_up_to_the_fifth_redirect", t_the_check_applies_to_every_hop_up_to_the_fifth_redirect},
     {"other_redirect_errors_keep_precedence", t_other_redirect_errors_keep_precedence},
-    {"near_misses_in_a_target_are_followed", t_near_misses_in_a_target_are_followed})
+    {"near_misses_in_a_target_are_followed", t_near_misses_in_a_target_are_followed},
+    {"path_and_query_compare_exactly", t_path_and_query_compare_exactly})

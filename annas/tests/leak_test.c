@@ -32,9 +32,9 @@ static void t_json_escaped_key_is_decoded_before_redaction(ctest_t *t) {
 
 static void t_percent_encoded_key_is_redacted(ctest_t *t) {
     kit_t *k = kit_begin();
-    kit_set_key(k, "fake key+/1&z");
-    kit_check_err(t, k, api(k, 400, "{\"error\":\"bad fake%20key%2B%2F1%26z and fake key+/1&z\"}"), ANNAS_E_API, 400,
-                  "400: bad REDACTED and REDACTED");
+    kit_set_key(k, "fake-key.1_~"); /* pct_encode(key) == key: the raw bytes are redacted, an escaped spelling is not */
+    kit_check_err(t, k, api(k, 400, "{\"error\":\"bad fake-key.1_~ and fake%2Dkey.1_~ and fake-key.1_~\"}"), ANNAS_E_API,
+                  400, "400: bad REDACTED and fake%2Dkey.1_~ and REDACTED");
 }
 
 static void t_key_parameters_are_redacted_in_server_text(ctest_t *t) {
@@ -84,8 +84,8 @@ static void t_result_containing_the_key_is_refused(ctest_t *t) {
     kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f?k=" KIT_KEY "\"}"), ANNAS_E_PARSE, 0,
                   "download URL contains the secret key");
     k = kit_begin();
-    kit_set_key(k, "fake key+1");
-    kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f?k=fake%20key%2B1\"}"), ANNAS_E_PARSE, 0,
+    kit_set_key(k, "fake-key.1_~");
+    kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f?k=fake-key.1_~\"}"), ANNAS_E_PARSE, 0,
                   "download URL contains the secret key");
     k = kit_begin();
     kit_check_err(t, k, api(k, 200, "{\"download_url\":\"https://dl.example.org/f\",\"account_fast_download_info\":{\"k\":\"" KIT_KEY "\"}}"),
@@ -98,7 +98,7 @@ static void t_title_equal_to_the_key_is_redacted_in_fs_errors(ctest_t *t) {
     kit_t *k = kit_begin();
     kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", "{\"download_url\":\"https://dl.example.org/f/1\"}"));
     kit_get(k, "dl.example.org", 443, "/f/1", kit_http(k, 200, "OK", "", "x"));
-    CHECK(t, kit_preload(k, KIT_KEY ".pdf", "old"));
+    CHECK(t, kit_preload(k, "REDACTED.pdf", "old")); /* the name the redacted title gives */
     annas_request_t r = kit_req(KIT_MD5);
     r.title = core_str_from_cstr(KIT_KEY);
     r.format = core_str_from_cstr("pdf");

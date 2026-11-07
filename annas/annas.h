@@ -27,15 +27,20 @@
  *     So pct_encode(KEY) == KEY, "raw or percent-encoded" below is one test, and a key never holds a control byte
  *     or a '%' (no lower-case "%1e" form exists). Any other key is ANNAS_E_CONFIG (see annas_config_load and
  *     the operations); the length limit is unchanged.
- *   TITLE.  annas_download first replaces, in the request's title, every non-overlapping occurrence (left to
- *     right) of KEY, then of pct_encode(KEY) if that differs from KEY (never, given the key class), with the
- *     8 bytes "REDACTED" (the rule of step 2 above); only then does fsname_sanitize cut and clean it (at most
- *     200 bytes). The commit name, the result `name` and `path` and annas_format_downloaded therefore never
- *     contain the key because of the title. (The md5 and the format are not redacted; a key that is a
- *     substring of those, or of ".bin", is the operator's choice.)
+ *   NAME.  annas_download redacts twice, each time with the rule of step 2 above (every non-overlapping occurrence,
+ *     left to right, of KEY, then of pct_encode(KEY) if that differs from KEY, which the key class rules out,
+ *     becomes the 8 bytes "REDACTED"). First the request's title, before fsname_sanitize cuts and cleans it (at
+ *     most 200 bytes). Then the COMPLETE final name, "<sanitised title or md5>.<format or bin>", after
+ *     sanitising and after the md5 and the format are joined in. So whatever sanitising (a title "a/b" becomes
+ *     "a_b"), the md5, the format or the default "bin" produce, neither the commit name nor the result `name` and
+ *     `path` nor annas_format_downloaded contains the key. The second pass may lengthen the name: a name longer
+ *     than ANNAS_NAME_MAX-1 bytes is cut to ANNAS_NAME_MAX-1 bytes (a cut cannot create the key). The one
+ *     exception to "never contains the key" is a key that is itself a substring of the text "REDACTED" (such
+ *     as "E" or "RED"): the replacement text then holds it, and redaction cannot remove it.
  *   DOWNLOAD PATH.  A download directory that contains KEY is ANNAS_E_CONFIG (config check, no port call).
- *   REDIRECT.  A redirect whose resolved target (host, port, path or query, as it would be sent) contains KEY is
- *     ANNAS_E_HTTP, no connection is made to the new host and the fs is not touched (see annas_download).
+ *   REDIRECT.  A redirect whose resolved target contains KEY is ANNAS_E_HTTP; the host part is compared ASCII
+ *     case-insensitively (host names are case-insensitive), the port, path and query exactly. No connection is
+ *     made to the new host and the fs is not touched (see annas_download).
  * Timeout.  An operation takes `start = clock.now_ms()` when it begins and has the absolute deadline
  *   start + cfg->timeout_ms (saturating). The deadline is passed to every stream connect, and annas ALSO compares
  *   the clock with it before every port call (connect, stream write, stream read, fs create_temp, fs write, fs
@@ -268,7 +273,7 @@ annas_code_t annas_fast_download_url(annas_ctx_t *ctx, const annas_request_t *re
  *     on a NEW connection to the new host. At most 5 redirects are followed; the 6th redirect response is
  *     E_HTTP "too many redirects". The key is never sent. Redirect bodies are not read (CL 0 in tests);
  *     the target of a redirect is checked LAST, after challenge detection and every http_redirect_resolve failure
- *     above: if its host, port, path or query contains the key (or pct_encode(key)), the result is E_HTTP
+ *     above: if its host, port, path or query contains the key (or pct_encode(key); the host case-insensitively, the rest exactly), the result is E_HTTP
  *     "redirect contains the key" with http_status = the redirect response's status, no connect to the new
  *     host, nothing created in the fs, the open stream closed as always;
  *   - any other status than 200: first http_detect_challenge with the body (annas reads the body up to
@@ -277,8 +282,9 @@ annas_code_t annas_fast_download_url(annas_ctx_t *ctx, const annas_request_t *re
  *   - 200: ONLY NOW create_temp. Each stream read that carries body bytes causes exactly ONE fs write with exactly
  *     those bytes, in order, for Content-Length and read-until-close bodies (a chunked body: one write per body
  *     slice the parser yields). Body bytes are never buffered whole. A zero-length 200 body commits an empty file.
- *     At the end of the message: commit(temp, name) with name = fsname_sanitize(redacted title, or the md5 when the
- *     title is absent) + "." + (format lower-cased, or "bin"), the title redacted as the TITLE rule says;
+ *     At the end of the message: commit(temp, name) with name = fsname_sanitize(title, or the md5 when the title is
+ *     absent) + "." + (format lower-cased, or "bin"), both passes of the NAME rule applied (title first, then the
+ *     complete name);
  *   - EVERY failure after create_temp calls discard(temp) once; nothing is committed, no partial file remains
  *     (if discard itself fails the original error is still the one reported). commit == PORTS_FS_E_EXISTS ->
  *     E_FS "file already exists: <name>", the existing file untouched;

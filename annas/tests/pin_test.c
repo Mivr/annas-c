@@ -106,9 +106,9 @@ static void t_root_directory_gives_a_path_below_the_root(ctest_t *t) {
 /* ---- a percent escape cut off by the end of the text -------------------------------------------------------- */
 
 static void t_percent_escape_cut_off_by_the_end_of_the_text(ctest_t *t) {
-    static const char dir_bytes[] = "a%2B"; /* the byte after the slice below would complete the escape of "+" */
+    static const char dir_bytes[] = "a%2B"; /* the byte after the slice below would complete the key "2B" */
     ports_fake_env_entry_t ent[2] = {
-        {core_str_from_cstr("ANNAS_SECRET_KEY"), core_str_from_cstr("+")},
+        {core_str_from_cstr("ANNAS_SECRET_KEY"), core_str_from_cstr("2B")},
         {core_str_from_cstr("ANNAS_DOWNLOAD_PATH"), {dir_bytes, 3}},
     };
     static ports_fake_env_t env;
@@ -118,6 +118,10 @@ static void t_percent_escape_cut_off_by_the_end_of_the_text(ctest_t *t) {
     CHECK_EQ_I64(t, annas_config_load(ports_fake_env_port(&env), true, 0, &cfg, &err), ANNAS_E_CONFIG);
     CHECK_EQ_STR(t, err.message, "ANNAS_DOWNLOAD_PATH must be an absolute path, got: a%2");
     CHECK_EQ_I64(t, err.http_status, 0);
+    ent[1].value.len = 4; /* control: the whole path holds the key */
+    CHECK(t, ports_fake_env_init(&env, ent, 2));
+    CHECK_EQ_I64(t, annas_config_load(ports_fake_env_port(&env), true, 0, &cfg, &err), ANNAS_E_CONFIG);
+    CHECK_EQ_STR(t, err.message, "ANNAS_DOWNLOAD_PATH must be an absolute path, got: a%REDACTED");
 }
 
 /* ---- echoes and statuses ------------------------------------------------------------------------------------ */

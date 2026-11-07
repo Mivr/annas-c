@@ -58,52 +58,57 @@ static const struct {
     {'{', "%7B", "%7C", "%6B"}, {'/', "%2F", "%2E", "%3F"}, {':', "%3A", "%3B", "%2A"},
 };
 
+/* The key is "Qk" (in the key class); the bytes next to the class are never part of a key, so an escape of one of
+ * them in the server text is left alone, whole or next to the key, and cannot split a key match. */
 static void t_percent_echo_of_bytes_next_to_the_unreserved_classes(ctest_t *t) {
     char echo[32];
     for (size_t i = 0; i < COUNT(g_outside); i++) {
-        snprintf(g_key, sizeof g_key, "%c k", g_outside[i].c);
-        snprintf(echo, sizeof echo, "x %s%%20k y", g_outside[i].pct);
-        expect_message(t, g_key, echo, "x REDACTED y");
-        snprintf(echo, sizeof echo, "x %s%%20k y", g_outside[i].low);
-        snprintf(g_want, sizeof g_want, "x %s%%20k y", g_outside[i].low);
-        expect_message(t, g_key, echo, g_want);
-        snprintf(echo, sizeof echo, "x %s%%20k y", g_outside[i].high);
-        snprintf(g_want, sizeof g_want, "x %s%%20k y", g_outside[i].high);
-        expect_message(t, g_key, echo, g_want);
+        snprintf(echo, sizeof echo, "x %sQk y", g_outside[i].pct);
+        snprintf(g_want, sizeof g_want, "x %sREDACTED y", g_outside[i].pct);
+        expect_message(t, "Qk", echo, g_want);
+        snprintf(echo, sizeof echo, "x Q%sk y", g_outside[i].pct); /* an escape inside: not the key */
+        snprintf(g_want, sizeof g_want, "x Q%sk y", g_outside[i].pct);
+        expect_message(t, "Qk", echo, g_want);
+        snprintf(echo, sizeof echo, "x %s%s y", g_outside[i].low, g_outside[i].high);
+        snprintf(g_want, sizeof g_want, "x %s%s y", g_outside[i].low, g_outside[i].high);
+        expect_message(t, "Qk", echo, g_want);
     }
 }
 
+/* The key is "q-1": pct_encode(key) == key, so an escaped spelling of its bytes ("%71" is 'q', "%2D" is '-', either
+ * hex case) is NOT a form of the key and is left alone; only the raw bytes are redacted. */
 static void t_percent_echo_with_one_wrong_hex_digit_is_left_alone(ctest_t *t) {
-    static const char *const near[] = {"%2C", "%3B", "%0B", "%2b", "%2", "%"};
+    static const char *const near[] = {"%71-1", "%71%2D%31", "%71%2d1", "q%2D1", "q-%31", "%2C", "%2", "%"};
     char echo[32];
     for (size_t i = 0; i < COUNT(near); i++) {
-        snprintf(echo, sizeof echo, "p %s%%20q z", near[i]);
-        snprintf(g_want, sizeof g_want, "p %s%%20q z", near[i]);
-        expect_message(t, "+ q", echo, g_want);
+        snprintf(echo, sizeof echo, "p %s z", near[i]);
+        snprintf(g_want, sizeof g_want, "p %s z", near[i]);
+        expect_message(t, "q-1", echo, g_want);
     }
-    expect_message(t, "+ q", "p %2B%20q z", "p REDACTED z");
+    expect_message(t, "q-1", "p q-1 z", "p REDACTED z");
+    expect_message(t, "q-1", "p q-1%71-1 z", "p REDACTED%71-1 z");
 }
 
 static void t_unreserved_edge_bytes_are_echoed_raw(ctest_t *t) {
     static const char edges[] = {'A', 'Z', 'a', 'z', '0', '9', '-', '.', '_', '~'};
     char echo[32];
     for (size_t i = 0; i < COUNT(edges); i++) {
-        snprintf(g_key, sizeof g_key, "%c k", edges[i]);
-        snprintf(echo, sizeof echo, "x %c%%20k y", edges[i]);
+        snprintf(g_key, sizeof g_key, "%cm", edges[i]); /* the class edge, then a letter: sent and echoed raw */
+        snprintf(echo, sizeof echo, "x %cm y", edges[i]);
         expect_message(t, g_key, echo, "x REDACTED y");
-        snprintf(g_key, sizeof g_key, "k%c ", edges[i]);
-        snprintf(echo, sizeof echo, "x k%c%%20 y", edges[i]);
+        snprintf(g_key, sizeof g_key, "m%c", edges[i]);
+        snprintf(echo, sizeof echo, "x m%c y", edges[i]);
         expect_message(t, g_key, echo, "x REDACTED y");
     }
 }
 
 static void t_key_at_the_end_of_the_server_text(ctest_t *t) {
     expect_message(t, "k", "tail k", "tail REDACTED");
-    expect_message(t, "+", "tail %2B", "tail REDACTED");
-    expect_message(t, "+", "tail +", "tail REDACTED");
-    expect_message(t, "a b", "tail a b", "tail REDACTED");
-    expect_message(t, "+", "tail %2", "tail %2");
-    expect_message(t, "+ q", "tail %2B%20q", "tail REDACTED");
+    expect_message(t, "q-1", "tail %71-1", "tail %71-1");
+    expect_message(t, "q-1", "tail q-1", "tail REDACTED");
+    expect_message(t, "q.b", "tail q.b", "tail REDACTED");
+    expect_message(t, "q-1", "tail q-", "tail q-");
+    expect_message(t, "q-1", "tail %2", "tail %2");
     expect_message(t, KIT_KEY, "tail " KIT_KEY, "tail REDACTED");
 }
 
