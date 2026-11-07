@@ -147,6 +147,7 @@ c_test(
         ":tls_stream",
         "//core:core",
         "//ports:ports",
+        "gate//third_party/mbedtls:mbedtls",
         "gate//third_party/tls_peer:tls_peer",
     ],
 )
