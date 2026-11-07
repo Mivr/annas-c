@@ -76,10 +76,6 @@ static void emit_path(core_buf_t *out, const merged_t *m) {
     while (i < len && !core_buf_overflow(out)) {
         size_t e;
         int kind;
-        if (m_at(m, i) != '/') {
-            i++;
-            continue;
-        }
         e = seg_end(m, i + 1);
         kind = seg_kind(m, i + 1, e);
         dir = kind != 0;

@@ -249,7 +249,8 @@ typedef struct {
 /* The API call. Order of work: (1) config: key (and for annas_download the download dir) must be non-empty, else
  * E_CONFIG with the combined message; then, in the order of annas_config_load, the key length (b, c), for
  * annas_download the dir length (d), the key class (e), the key without "REDACTED" (f) and for annas_download a dir
- * that contains the key (h), each its E_CONFIG message (the absolute-path check (g) stays annas_config_load's); (2) request validation -> E_ARG: the fast call validates only the md5 and
+ * that contains the key (h), each its E_CONFIG message (the absolute-path check (g) stays annas_config_load's);
+ * (2) request validation -> E_ARG: the fast call validates only the md5 and
  * ignores title and format (annas_download also validates format, md5 first); (1) and (2) happen before ANY port
  * call. (3) connect(base, 443, deadline); write
  *   GET /dyn/api/fast_download.json?md5=<md5>&key=<pct_encode(key)>[&path_index=<n>][&domain_index=<n>] HTTP/1.1
