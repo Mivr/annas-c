@@ -61,18 +61,13 @@ bool json_number_text(const json_value_t *v, core_str_t *out) {
     return true;
 }
 
-/* Integer literal -?digits (no fraction, no exponent)? Sets *neg and *digits. */
-static bool int_literal(core_str_t t, bool *neg, core_str_t *digits) {
-    size_t k;
+/* Splits a number's text into its sign and the rest. The text comes from json_num_scan (the only way a
+ * JSON_NUMBER node is made), so it is -?digits... and never empty; core_parse_u64 then accepts only a pure
+ * digit string, which rejects a fraction or an exponent. */
+static void split_sign(core_str_t t, bool *neg, core_str_t *digits) {
     *neg = t.len > 0 && t.ptr[0] == '-';
     digits->ptr = t.ptr + (*neg ? 1 : 0);
     digits->len = t.len - (*neg ? 1 : 0);
-    for (k = 0; k < digits->len; k++) {
-        if (digits->ptr[k] < '0' || digits->ptr[k] > '9') {
-            return false;
-        }
-    }
-    return true;
 }
 
 bool json_get_u64(const json_value_t *v, uint64_t *out) {
@@ -82,7 +77,8 @@ bool json_get_u64(const json_value_t *v, uint64_t *out) {
     if (v == NULL || v->type != JSON_NUMBER || out == NULL) {
         return false;
     }
-    if (!int_literal(v->u.s, &neg, &d) || neg || !core_parse_u64(d, &mag)) {
+    split_sign(v->u.s, &neg, &d);
+    if (neg || !core_parse_u64(d, &mag)) {
         return false;
     }
     *out = mag;
@@ -96,7 +92,8 @@ bool json_get_i64(const json_value_t *v, int64_t *out) {
     if (v == NULL || v->type != JSON_NUMBER || out == NULL) {
         return false;
     }
-    if (!int_literal(v->u.s, &neg, &d) || !core_parse_u64(d, &mag)) {
+    split_sign(v->u.s, &neg, &d);
+    if (!core_parse_u64(d, &mag)) {
         return false;
     }
     if (neg) {

@@ -25,7 +25,7 @@ static void skip_ws(json_parser_t *p) {
 /* Decodes the string at p->i into the arena: a counting pass first, so errors win over NOMEM and the
  * allocation is exact. */
 static json_err_t read_str(json_parser_t *p, core_str_t *out) {
-    size_t start = p->i, len = 0, len2 = 0, end;
+    size_t start = p->i, len, len2, end;
     char *buf = NULL;
     json_err_t e = json_str_decode(p, NULL, &len);
     if (e != JSON_OK) {
@@ -49,13 +49,15 @@ static json_err_t read_str(json_parser_t *p, core_str_t *out) {
     return e;
 }
 
-static json_err_t literal(json_parser_t *p, const char *word, size_t len) {
+/* Matches the rest of a literal: its first letter, at p->i, already selected it in start_type. */
+static json_err_t literal(json_parser_t *p, const char *rest, size_t len) {
     size_t k;
+    p->i++;
     for (k = 0; k < len; k++) {
         if (p->i + k >= p->n) {
             return fail(p, JSON_E_SYNTAX, p->n);
         }
-        if (p->s[p->i + k] != (unsigned char)word[k]) {
+        if (p->s[p->i + k] != (unsigned char)rest[k]) {
             return fail(p, JSON_E_SYNTAX, p->i + k);
         }
     }
@@ -84,10 +86,10 @@ static json_err_t scalar(json_parser_t *p, json_value_t *v) {
     switch (v->type) {
     case JSON_STRING: return read_str(p, &v->u.s);
     case JSON_NUMBER: return read_number(p, &v->u.s);
-    case JSON_NULL: return literal(p, "null", 4);
+    case JSON_NULL: return literal(p, "ull", 3);
     default:
         v->b = p->s[p->i] == 't';
-        return v->b ? literal(p, "true", 4) : literal(p, "false", 5);
+        return v->b ? literal(p, "rue", 3) : literal(p, "alse", 4);
     }
 }
 
@@ -173,8 +175,11 @@ static json_err_t value_start(json_parser_t *p, json_value_t *pre) {
 typedef struct json_member member_t;
 
 static int key_cmp(core_str_t a, core_str_t b) {
-    if (a.len != b.len) {
-        return a.len < b.len ? -1 : 1;
+    if (a.len < b.len) {
+        return -1;
+    }
+    if (a.len > b.len) {
+        return 1;
     }
     return a.len == 0 ? 0 : memcmp(a.ptr, b.ptr, a.len);
 }
@@ -208,7 +213,7 @@ static void fix_red(member_t *t, member_t *g, member_t *p, member_t *q, int last
  * false: an equal key is already present. */
 static bool descend(member_t *head, member_t *nn) {
     member_t *g = NULL, *t = head, *p = NULL, *q = head->kid[1];
-    int dir = 0, last = 0, c;
+    int dir, last, c;
     for (;;) {
         if (q == NULL) {
             q = nn;
@@ -218,7 +223,9 @@ static bool descend(member_t *head, member_t *nn) {
             q->kid[0]->v.red = false;
             q->kid[1]->v.red = false;
         }
-        fix_red(t, g, p, q, last);
+        if (p != NULL) {
+            fix_red(t, g, p, q, last);
+        }
         if (q == nn) {
             return true;
         }
@@ -237,7 +244,7 @@ static bool descend(member_t *head, member_t *nn) {
 
 /* Adds member `nn` (zeroed links) to the index of object `obj`. false: the key is a repeat. */
 static bool index_insert(json_value_t *obj, member_t *nn) {
-    member_t head;
+    member_t head = {.kid = {NULL, obj->u.c.tree}};
     bool ok;
     nn->v.red = true;
     if (obj->u.c.tree == NULL) {
@@ -245,8 +252,6 @@ static bool index_insert(json_value_t *obj, member_t *nn) {
         obj->u.c.tree = nn;
         return true;
     }
-    memset(&head, 0, sizeof head);
-    head.kid[1] = obj->u.c.tree;
     ok = descend(&head, nn);
     obj->u.c.tree = head.kid[1];
     obj->u.c.tree->v.red = false;
