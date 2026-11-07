@@ -55,3 +55,5 @@ c_test(name = "survivor_url_test", srcs = ["tests/survivor_url_test.c"], deps = 
 c_test(name = "survivor_redirect_test", srcs = ["tests/survivor_redirect_test.c"], deps = [":http", "//core:core"])
 
 c_test(name = "survivor_edges_test", srcs = ["tests/survivor_edges_test.c"], deps = [":http", "//core:core"])
+
+c_test(name = "survivor_chars_test", srcs = ["tests/survivor_chars_test.c"], deps = [":http", "//core:core"])

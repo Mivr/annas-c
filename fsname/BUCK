@@ -13,3 +13,5 @@ c_test(name = "fsname_test", srcs = ["tests/fsname_test.c"], deps = [":fsname", 
 c_test(name = "fsname_utf8_test", srcs = ["tests/fsname_utf8_test.c"], deps = [":fsname", "//core:core"])
 
 c_test(name = "fsname_prop_test", srcs = ["tests/fsname_prop_test.c"], deps = [":fsname", "//core:core"])
+
+c_test(name = "fsname_edge_test", srcs = ["tests/fsname_edge_test.c"], deps = [":fsname", "//core:core"])
