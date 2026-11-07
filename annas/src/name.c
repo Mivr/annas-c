@@ -60,16 +60,15 @@ static void build_path(const annas_ctx_t *ctx, annas_download_result_t *res) {
  * length. dst may be src itself: the output never gets ahead of the input, since the key (16 bytes or more,
  * check_config) is longer than its replacement (8), and the output is never longer than the input. */
 static size_t redact_to(char *dst, core_str_t src, core_str_t key) {
-    static const char word[] = URL_REDACTED;
+    core_str_t word = core_str_from_cstr(URL_REDACTED);
     cat_t t = {src, {NULL, 0}, false, false};
     size_t o = 0;
     size_t pos = 0;
     while (pos < src.len) {
-        size_t m = key_match(&t, pos, key);
-        if (m > 0) {
-            memcpy(dst + o, word, sizeof word - 1u);
-            o += sizeof word - 1u;
-            pos += m;
+        if (key_match(&t, pos, key)) {
+            memcpy(dst + o, word.ptr, word.len);
+            o += word.len;
+            pos += key.len;
         } else {
             dst[o] = src.ptr[pos];
             o++;

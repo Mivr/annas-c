@@ -4,22 +4,11 @@
 
 #define EMPTY_URL_TEXT "API returned empty download URL"
 
-/* The longest request target: check_config bounds the key to ANNAS_KEY_MAX bytes (3 per byte encoded), the md5 is
- * 32 digits, each index at most 20. So the target never overflows its buffer. */
-_Static_assert(sizeof "/dyn/api/fast_download.json?md5=" + 32u + sizeof "&key=" + 3u * ANNAS_KEY_MAX +
+/* The longest request target: check_config bounds the key to ANNAS_KEY_MAX bytes (sent as they are, the key class),
+ * the md5 is 32 digits, each index at most 20. So the target never overflows its buffer. */
+_Static_assert(sizeof "/dyn/api/fast_download.json?md5=" + 32u + sizeof "&key=" + ANNAS_KEY_MAX +
                        sizeof "&path_index=" + 20u + sizeof "&domain_index=" + 20u < WS_TARGET_CAP,
                "the API request target always fits");
-
-/* E_CONFIG for a base host the request writer refuses (an annas_config_t not made by annas_config_load). */
-static annas_code_t base_invalid(const annas_ctx_t *ctx, annas_error_t *err) {
-    size_t n = ctx->cfg->base_len;
-    if (n >= ANNAS_BASE_MAX) {
-        n = ANNAS_BASE_MAX - 1u; /* never read past the array */
-    }
-    core_str_t shown = {ctx->cfg->base, n};
-    msg_body_t body = {core_str_from_cstr("ANNAS_BASE_URL is not a valid domain, got: "), shown, 200};
-    return msg_fail(err, ANNAS_E_CONFIG, 0, ctx_key(ctx), &body);
-}
 
 static void put_index(core_buf_t *t, const char *name, bool present, uint64_t v) {
     if (present) {
@@ -28,33 +17,32 @@ static void put_index(core_buf_t *t, const char *name, bool present, uint64_t v)
     }
 }
 
-/* The API URL: the configured host, port 443 and the target (path, md5, percent-encoded key, the optional indices)
- * built in `t`. False when the key cannot be encoded, which only a key slice {NULL, len > 0} does. */
-static bool api_url(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, core_buf_t *t,
+/* The API URL: the configured host, port 443 and the target (path, md5, key, the optional indices) built in `t`. */
+static void api_url(const annas_ctx_t *ctx, const annas_request_t *req, const char *md5, core_buf_t *t,
                     http_url_t *u) {
     core_buf_put_str(t, core_str_from_cstr("/dyn/api/fast_download.json?md5="));
     core_buf_put(t, md5, URL_MD5_BUF - 1u);
     core_buf_put_str(t, core_str_from_cstr("&key="));
-    url_status_t st = url_pct_encode(t, ctx_key(ctx));
+    core_buf_put_str(t, ctx_key(ctx)); /* the key class: its percent-encoding is itself (annas.h) */
     put_index(t, "&path_index=", req->has_path_index, req->path_index);
     put_index(t, "&domain_index=", req->has_domain_index, req->domain_index);
     u->host = (core_str_t){ctx->cfg->base, ctx->cfg->base_len};
     u->port = 443;
     u->target = core_buf_str(t);
-    return st == URL_OK;
 }
 
 /* A base the writer refuses (http_host_valid: also any base_len above 253, refused before a byte is read) is
- * E_CONFIG. The other failures cannot happen for the workspace buffers and a key slice check_config passed; a
- * {NULL, len > 0} key would fail every message alike, since each message reads the key. */
+ * E_CONFIG. The other failures cannot happen for the workspace buffers and a key check_config passed. */
 static annas_code_t api_send(annas_ctx_t *ctx, annas_error_t *err, const ws_t *w, exch_t *x, const annas_request_t *req,
                              const char *md5) {
     core_buf_t tb;
     core_buf_t rb;
     http_url_t u;
-    if (!core_buf_init(&tb, (char *)w->rest, WS_TARGET_CAP) || !core_buf_init(&rb, (char *)w->body, WS_BODY_CAP) ||
-        !api_url(ctx, req, md5, &tb, &u) || http_request_write(&rb, &u, core_str_from_cstr(ANNAS_VERSION)) != HTTP_OK) {
-        return base_invalid(ctx, err);
+    (void)core_buf_init(&tb, (char *)w->rest, WS_TARGET_CAP); /* workspace buffers: cannot fail */
+    (void)core_buf_init(&rb, (char *)w->body, WS_BODY_CAP);
+    api_url(ctx, req, md5, &tb, &u);
+    if (http_request_write(&rb, &u, core_str_from_cstr(ANNAS_VERSION)) != HTTP_OK) {
+        return msg_text(err, ANNAS_E_CONFIG, 0, ctx_key(ctx), "ANNAS_BASE_URL is not a valid domain");
     }
     return exch_open(x, u.host, u.port, core_buf_str(&rb));
 }
@@ -135,12 +123,12 @@ typedef struct {
 /* The server text that becomes the E_API detail and its length limit, if there is one (else *src and *cut are left
  * as they are). */
 static bool pick_detail(const reply_t *r, core_str_t *src, size_t *cut) {
-    if (r->root == NULL && r->body.len > 0) {
+    if (r->root == NULL && r->body.len != 0) {
         *src = r->body;
         *cut = 512;
         return true;
     }
-    if (json_type(r->root) == JSON_OBJECT && member_str(r->root, "error", src) && src->len > 0) {
+    if (json_type(r->root) == JSON_OBJECT && member_str(r->root, "error", src) && src->len != 0) {
         *cut = 200;
         return true;
     }

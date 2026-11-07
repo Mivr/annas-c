@@ -51,7 +51,7 @@ void ws_split(const annas_ctx_t *ctx, ws_t *w) {
     w->io = base + WS_IO_OFF;
     w->body = base + WS_BODY_OFF;
     w->rest = base + WS_REST_OFF;
-    w->rest_cap = ctx->work_cap - WS_REST_OFF;
+    w->rest_cap = ANNAS_WORKSPACE_MIN - WS_REST_OFF; /* what every accepted workspace holds (annas_ctx_init) */
 }
 
 void op_begin(annas_ctx_t *ctx) {

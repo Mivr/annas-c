@@ -15,23 +15,23 @@ unsigned char cat_at(const cat_t *t, size_t i) {
 
 /* The key is 16..256 bytes of the URL-unreserved set (annas.h, KEY CLASS), so its percent-encoding is itself and one
  * raw comparison finds both forms. With `t->fold` the text and the key are compared ASCII case-insensitively. */
-size_t key_match(const cat_t *t, size_t pos, core_str_t key) {
-    if (key.len > cat_len(t) - pos) {
-        return 0;
+bool key_match(const cat_t *t, size_t pos, core_str_t key) {
+    if (key.len == 0 || key.len > cat_len(t) - pos) {
+        return false;
     }
     for (size_t i = 0; i < key.len; i++) {
         char k = t->fold ? core_ascii_lower(key.ptr[i]) : key.ptr[i];
         if (cat_at(t, pos + i) != (unsigned char)k) {
-            return 0;
+            return false;
         }
     }
-    return key.len;
+    return true;
 }
 
 bool key_in(core_str_t hay, core_str_t key, bool fold) {
     cat_t t = {hay, {NULL, 0}, false, fold};
-    for (size_t pos = 0; pos < hay.len; pos++) {
-        if (key_match(&t, pos, key) != 0) {
+    for (size_t pos = 0; pos + key.len <= hay.len; pos++) {
+        if (key_match(&t, pos, key)) {
             return true;
         }
     }

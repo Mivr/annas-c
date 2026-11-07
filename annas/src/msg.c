@@ -7,12 +7,11 @@ typedef struct {
     size_t cut;
 } sink_t;
 
-/* True once nothing more may be written: ANNAS_MSG_MAX - 1 bytes in all, or `cut` bytes of the echo part. */
-static bool sink_full(const sink_t *s) {
-    return s->o >= ANNAS_MSG_MAX - 1u || (s->boundary != SIZE_MAX && s->o - s->boundary >= s->cut);
-}
+/* True once `cut` bytes of the echo part are in. Every message fits ANNAS_MSG_MAX on its own: the longest text is a
+ * constant, a status number or a name (at most ANNAS_NAME_MAX), plus an echo cut to 512 bytes at most. */
+static bool sink_full(const sink_t *s) { return s->boundary != SIZE_MAX && s->o - s->boundary >= s->cut; }
 
-/* Appends c unless the message is full. */
+/* Appends c unless the echo is cut. */
 static void sink_put(sink_t *s, char c) {
     if (!sink_full(s)) {
         s->dst[s->o] = c;
@@ -35,10 +34,9 @@ static void finalise(sink_t *s, const cat_t *t, core_str_t key) {
         if (pos >= t->a.len && s->boundary == SIZE_MAX) {
             s->boundary = s->o;
         }
-        size_t m = key_match(t, pos, key);
-        if (m > 0) {
+        if (key_match(t, pos, key)) {
             put_redacted(s);
-            pos += m;
+            pos += key.len;
         } else {
             sink_put(s, (char)cat_at(t, pos));
             pos++;

@@ -84,8 +84,9 @@ typedef struct {
 
 size_t cat_len(const cat_t *t);
 unsigned char cat_at(const cat_t *t, size_t i);
-/* Length of the key found at `pos` of `t`, or 0. The key class makes the key its own percent-encoding. */
-size_t key_match(const cat_t *t, size_t pos, core_str_t key);
+/* True iff the key is at `pos` of `t` (an empty key is nowhere). The key class makes the key its own
+ * percent-encoding, so the raw text is the only form to look for. */
+bool key_match(const cat_t *t, size_t pos, core_str_t key);
 /* True iff `hay` contains the key (compared ASCII case-insensitively when `fold`). */
 bool key_in(core_str_t hay, core_str_t key, bool fold);
 /* url_redact_key(src) into the rest of the arena, as *out; *out is left unchanged when it does not fit. */
