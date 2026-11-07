@@ -17,3 +17,5 @@ c_test(name = "url_build_test", srcs = ["tests/url_build_test.c"], deps = [":url
 c_test(name = "url_redact_test", srcs = ["tests/url_redact_test.c"], deps = [":url", "//core:core"])
 
 c_test(name = "url_ident_test", srcs = ["tests/url_ident_test.c"], deps = [":url", "//core:core"])
+
+c_test(name = "url_edge_test", srcs = ["tests/url_edge_test.c"], deps = [":url", "//core:core"])
