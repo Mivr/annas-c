@@ -3,16 +3,21 @@
 
 #include "posix_fs/src/internal.h"
 
-posix_fs_slot_t *pfs_find(posix_fs_t *fs, ports_fs_file_t file) {
-    if (fs == NULL || !fs->is_open || file == PORTS_FS_NO_FILE) {
-        return NULL;
-    }
+/* The first slot whose id is `id`; with PORTS_FS_NO_FILE, the first free slot. */
+static posix_fs_slot_t *slot_with_id(posix_fs_t *fs, ports_fs_file_t id) {
     for (size_t i = 0; i < POSIX_FS_SLOTS; i++) {
-        if (fs->slots[i].id == file) {
+        if (fs->slots[i].id == id) {
             return &fs->slots[i];
         }
     }
     return NULL;
+}
+
+posix_fs_slot_t *pfs_find(posix_fs_t *fs, ports_fs_file_t file) {
+    if (fs == NULL || !fs->is_open || file == PORTS_FS_NO_FILE) {
+        return NULL;
+    }
+    return slot_with_id(fs, file);
 }
 
 bool pfs_release(posix_fs_t *fs, posix_fs_slot_t *slot) {
@@ -25,7 +30,6 @@ static void reset_closed(posix_fs_t *fs, const posix_fs_sys_t *sys, void *sys_ct
     memset(fs, 0, sizeof *fs);
     fs->sys = sys;
     fs->sys_ctx = sys_ctx;
-    fs->dir_fd = -1;
     fs->next_id = 1u;
 }
 
@@ -73,18 +77,8 @@ ports_fs_err_t posix_fs_close(posix_fs_t *fs) {
     }
     int64_t rc = fs->sys->close(fs->sys_ctx, fs->dir_fd);
     ok = (rc >= 0 || rc == -EINTR) && ok;
-    fs->dir_fd = -1;
     fs->is_open = false;
     return ok ? PORTS_FS_OK : PORTS_FS_E_IO;
-}
-
-static posix_fs_slot_t *free_slot(posix_fs_t *fs) {
-    for (size_t i = 0; i < POSIX_FS_SLOTS; i++) {
-        if (fs->slots[i].id == PORTS_FS_NO_FILE) {
-            return &fs->slots[i];
-        }
-    }
-    return NULL;
 }
 
 ports_fs_err_t posix_fs_create_temp(posix_fs_t *fs, ports_fs_file_t *file) {
@@ -94,7 +88,7 @@ ports_fs_err_t posix_fs_create_temp(posix_fs_t *fs, ports_fs_file_t *file) {
     if (!fs->is_open) {
         return PORTS_FS_E_IO;
     }
-    posix_fs_slot_t *slot = free_slot(fs);
+    posix_fs_slot_t *slot = slot_with_id(fs, PORTS_FS_NO_FILE);
     if (slot == NULL) {
         return PORTS_FS_E_NOSPACE;
     }
@@ -106,7 +100,7 @@ ports_fs_err_t posix_fs_create_temp(posix_fs_t *fs, ports_fs_file_t *file) {
     slot->fd = (int)rc;
     slot->size = 0;
     slot->broken = false;
-    fs->next_id = fs->next_id + 1u == 0u ? 1u : fs->next_id + 1u;
+    fs->next_id = fs->next_id % UINT32_MAX + 1u; /* 1, 2, ..., UINT32_MAX, then 1 again: 0 is skipped */
     *file = slot->id;
     return PORTS_FS_OK;
 }
