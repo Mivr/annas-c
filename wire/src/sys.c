@@ -9,7 +9,7 @@
 
 static int64_t fail_errno(void)
 {
-    return errno > 0 ? -(int64_t)errno : -(int64_t)EIO;
+    return -(int64_t)errno; /* POSIX: errno is set by a failed open or read */
 }
 
 static int64_t sys_fill(int fd, unsigned char *buf, size_t cap)

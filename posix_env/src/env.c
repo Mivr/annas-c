@@ -29,16 +29,15 @@ static bool entry_matches(const char *entry, core_str_t name, core_str_t *value)
 
 static bool env_get(void *ctx, core_str_t name, core_str_t *value) {
     const posix_env_t *e = (const posix_env_t *)ctx;
-    core_str_t found = {NULL, 0};
     bool ok = false;
+    if (value != NULL) {
+        *value = (core_str_t){NULL, 0};
+    }
     if (e != NULL && value != NULL && name.len > 0 && name.ptr != NULL && memchr(name.ptr, '=', name.len) == NULL &&
         memchr(name.ptr, '\0', name.len) == NULL) {
         for (char *const *p = e->envp; *p != NULL && !ok; p++) {
-            ok = entry_matches(*p, name, &found);
+            ok = entry_matches(*p, name, value);
         }
-    }
-    if (value != NULL) {
-        *value = ok ? found : (core_str_t){NULL, 0};
     }
     return ok;
 }
