@@ -76,14 +76,12 @@ static void teardown(tls_obj_t *o)
 
 static ports_err_t load_ca(tls_obj_t *o)
 {
-    /* the result is not needed: mbedtls_x509_crt_parse() returns non-zero whenever it parsed no certificate, so
-     * "nothing parsed" (version 0) is the whole test below */
-    (void) mbedtls_x509_crt_parse(&o->ca, (const unsigned char *) o->cfg.ca_pem.ptr, o->cfg.ca_pem.len);
+    int ret = mbedtls_x509_crt_parse(&o->ca, (const unsigned char *) o->cfg.ca_pem.ptr, o->cfg.ca_pem.len);
     if (o->heap.failed) {
         return PORTS_E_NET;
     }
     /* a block that does not parse is skipped; with no usable certificate at all nothing is trusted */
-    return o->ca.version == 0 ? PORTS_E_TLS : PORTS_OK;
+    return ret != 0 && o->ca.version == 0 ? PORTS_E_TLS : PORTS_OK;
 }
 
 static ports_err_t configure(tls_obj_t *o, core_str_t host)
@@ -107,8 +105,9 @@ static ports_err_t configure(tls_obj_t *o, core_str_t host)
 static ports_err_t prepare(tls_obj_t *o, core_str_t host)
 {
     ports_err_t e;
-    /* no mbedtls_*_init() calls: those only zero their context, and the contexts are already zero (tls_stream_init
-     * zeroes the object, and every teardown() ends in the free functions, which zeroise them) */
+    mbedtls_ssl_init(&o->ssl);
+    mbedtls_ssl_config_init(&o->conf);
+    mbedtls_x509_crt_init(&o->ca);
     if (mbedtls_platform_set_time(wall_now) != 0 || psa_crypto_init() != PSA_SUCCESS) {
         return PORTS_E_NET;
     }
