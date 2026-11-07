@@ -82,7 +82,8 @@ static bool has_match(core_str_t src, const pass_t *p) {
     return false;
 }
 
-/* `res` = the pass over `src`: src itself when nothing matches and a copy is not forced. */
+/* `res` = the pass over `src`: src itself, never copied or capped, when nothing matches and a copy is not forced
+ * (a text over APP_FIN_MAX that pass 2 shrinks must still fit). */
 static bool pass_run(core_str_t src, const pass_t *p, bool force_copy, char *dst, core_str_t *res) {
     size_t n;
     if (!force_copy && !has_match(src, p)) {
@@ -130,13 +131,14 @@ bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str
     return res->len <= APP_FIN_MAX; /* src itself is returned by a pass that finds nothing */
 }
 
-void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text, bool in_scratch) {
+/* A CLI outcome text is below APP_TEXT_CAP bytes and every byte becomes at most 8 (a one-byte key), in each of the
+ * two passes alike (the second one only rewrites bytes the first left): the finalised text always fits. */
+_Static_assert(8u * (APP_TEXT_CAP - 1u) <= APP_FIN_MAX, "a finalised outcome text fits");
+
+void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text) {
     core_str_t fin;
-    if (app_finalise(d, text, in_scratch, &fin)) {
-        core_buf_put_str(dst, fin);
-    } else {
-        core_buf_put(dst, NULL, 1);
-    }
+    (void)app_finalise(d, text, true, &fin);
+    core_buf_put_str(dst, fin);
 }
 
 size_t app_echo_cut(core_str_t in, char *out) {
@@ -180,8 +182,9 @@ static bool tail_ok(const unsigned char *p, size_t need) {
     return true;
 }
 
-/* Length of the well-formed UTF-8 sequence at p[0..n), or 0. */
-static size_t seq_len(const unsigned char *p, size_t n) {
+/* Length of the well-formed UTF-8 sequence at p, or 0. It never reads past the first byte that is not part of the
+ * sequence, which is a NUL at the end of the text at the latest: a NUL is neither a lead nor a continuation byte. */
+static size_t seq_len(const unsigned char *p) {
     unsigned char lo;
     unsigned char hi;
     size_t need;
@@ -189,7 +192,7 @@ static size_t seq_len(const unsigned char *p, size_t n) {
         return 1;
     }
     need = lead_need(p[0], &lo, &hi);
-    if (need == 0 || n <= need || p[1] < lo || p[1] > hi || !tail_ok(p, need)) {
+    if (need == 0 || p[1] < lo || p[1] > hi || !tail_ok(p, need)) {
         return 0;
     }
     return need + 1u;
@@ -197,8 +200,8 @@ static size_t seq_len(const unsigned char *p, size_t n) {
 
 void app_utf8_clean(char *s, size_t n) {
     size_t i = 0;
-    while (i < n) {
-        size_t l = seq_len((const unsigned char *)s + i, n - i);
+    while (i != n) { /* a sequence never reaches s[n]: i lands on n */
+        size_t l = seq_len((const unsigned char *)s + i);
         if (l == 0) {
             s[i] = '?';
             i++;

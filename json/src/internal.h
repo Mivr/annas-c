@@ -59,6 +59,9 @@ typedef struct {
     size_t err;              /* error offset */
 } json_parser_t;
 
+/* Is the input byte at pos (in range) equal to ch? False at and past the end. */
+bool json_byte_is(const json_parser_t *p, size_t pos, unsigned char ch);
+
 /* p->i at the opening quote. Validates and decodes the string; on success p->i is past the closing quote and
  * *out_len is the decoded length. With dst != NULL the decoded bytes are written (dst has *out_len room). */
 json_err_t json_str_decode(json_parser_t *p, char *dst, size_t *out_len);

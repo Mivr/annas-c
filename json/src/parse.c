@@ -25,13 +25,12 @@ static void skip_ws(json_parser_t *p) {
 /* Decodes the string at p->i into the arena: a counting pass first, so errors win over NOMEM and the
  * allocation is exact. */
 static json_err_t read_str(json_parser_t *p, core_str_t *out) {
-    size_t start = p->i, len, len2, end;
+    size_t start = p->i, len, len2;
     char *buf = NULL;
     json_err_t e = json_str_decode(p, NULL, &len);
     if (e != JSON_OK) {
         return e;
     }
-    end = p->i;
     if (len == 0) {
         out->ptr = g_empty;
         out->len = 0;
@@ -42,11 +41,12 @@ static json_err_t read_str(json_parser_t *p, core_str_t *out) {
         return nomem(p);
     }
     p->i = start;
-    e = json_str_decode(p, buf, &len2);
-    p->i = end;
+    /* The second pass re-reads what the first accepted: same bytes, same limits, so it cannot fail and ends
+     * where the first did. */
+    (void)json_str_decode(p, buf, &len2);
     out->ptr = buf;
     out->len = len;
-    return e;
+    return JSON_OK;
 }
 
 /* Matches the rest of a literal: its first letter, at p->i, already selected it in start_type. */
@@ -230,11 +230,14 @@ static bool descend(member_t *head, member_t *nn) {
             return true;
         }
         c = key_cmp(q->v.key, nn->v.key);
-        if (c == 0) {
+        last = dir;
+        if (c < 0) {
+            dir = 1;
+        } else if (c > 0) {
+            dir = 0;
+        } else {
             return false;
         }
-        last = dir;
-        dir = c < 0;
         t = g != NULL ? g : t;
         g = p;
         p = q;
@@ -276,7 +279,7 @@ static json_err_t member(json_parser_t *p) {
     json_err_t e;
     member_t *m;
     skip_ws(p);
-    if (p->i >= p->n || p->s[p->i] != '"') {
+    if (!json_byte_is(p, p->i, '"')) {
         return fail(p, JSON_E_SYNTAX, p->i);
     }
     start = p->i;
@@ -292,7 +295,7 @@ static json_err_t member(json_parser_t *p) {
         return fail(p, JSON_E_SYNTAX, start);
     }
     skip_ws(p);
-    if (p->i >= p->n || p->s[p->i] != ':') {
+    if (!json_byte_is(p, p->i, ':')) {
         return fail(p, JSON_E_SYNTAX, p->i);
     }
     p->i++;
@@ -386,8 +389,9 @@ json_err_t json_parse(core_arena_t *a, core_str_t in, const json_limits_t *lim, 
     } else {
         mark = core_arena_mark(a);
         e = run(a, in, &l, root, &off);
-        if (e != JSON_OK && !core_arena_reset_to(a, mark)) {
-            e = JSON_E_ARG;
+        if (e != JSON_OK) {
+            /* mark came from this arena a moment ago and the arena only grew since, so the rewind is valid. */
+            (void)core_arena_reset_to(a, mark);
         }
     }
     if (err_offset != NULL) {

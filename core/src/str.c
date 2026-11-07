@@ -49,19 +49,15 @@ static bool is_ws(char c) {
 }
 
 core_str_t core_str_trim(core_str_t s) {
-    size_t start = 0;
-    size_t end = s.len;
-    core_str_t r = {NULL, 0};
+    core_str_t r = {NULL, 0}; /* from the first to the last byte that is not white space; empty if none */
 
-    while (start < end && is_ws(s.ptr[start])) {
-        start++;
-    }
-    while (end > start && is_ws(s.ptr[end - 1])) {
-        end--;
-    }
-    if (end > start) {
-        r.ptr = s.ptr + start;
-        r.len = end - start;
+    for (size_t i = 0; i < s.len; i++) {
+        if (!is_ws(s.ptr[i])) {
+            if (r.ptr == NULL) {
+                r.ptr = s.ptr + i;
+            }
+            r.len = (size_t)(s.ptr + i + 1 - r.ptr);
+        }
     }
     return r;
 }
