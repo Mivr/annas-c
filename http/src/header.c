@@ -41,33 +41,32 @@ static bool is_digit_byte(unsigned char c) {
     return c >= '0' && c <= '9';
 }
 
-/* The three digits at l[9..11] as a number, or -1. */
-static int status_code(const unsigned char *l) {
-    if (!is_digit_byte(l[9]) || !is_digit_byte(l[10]) || !is_digit_byte(l[11])) {
-        return -1;
+/* The three digits at l[9..11] as a code in 200..599 (first digit 2..5), stored in *code; false otherwise. */
+static bool status_code(const unsigned char *l, int *code) {
+    if (l[9] < '2' || l[9] > '5' || !is_digit_byte(l[10]) || !is_digit_byte(l[11])) {
+        return false;
     }
-    return (l[9] - '0') * 100 + (l[10] - '0') * 10 + (l[11] - '0');
+    *code = (l[9] - '0') * 100 + (l[10] - '0') * 10 + (l[11] - '0');
+    return true;
 }
 
-/* A code in 200..599, then either nothing or " <reason text>". */
-static bool status_rest_ok(const unsigned char *l, size_t n, int code) {
-    return code >= 200 && code <= 599 && (n <= 12 || (l[12] == ' ' && all_text(l + 13, n - 13)));
+/* After the code: either nothing or " <reason text>". */
+static bool reason_ok(const unsigned char *l, size_t n) {
+    return n <= 12 || (l[12] == ' ' && all_text(l + 13, n - 13));
 }
 
 http_status_t http_status_line(http_parser_t *p, size_t n, http_event_t *ev) {
     const unsigned char *l = p->line;
     int code;
-    if (!status_prefix_ok(l, n)) {
+    size_t skip;
+    if (!status_prefix_ok(l, n) || !status_code(l, &code) || !reason_ok(l, n)) {
         return HTTP_E_STATUS_LINE;
     }
-    code = status_code(l);
-    if (code < 0 || !status_rest_ok(l, n, code)) {
-        return HTTP_E_STATUS_LINE;
-    }
+    skip = (n > 12) ? 1u : 0u; /* the single SP before a reason */
     ev->kind = HTTP_EV_STATUS;
     ev->status = code;
     ev->minor = l[7] - '0';
-    ev->reason = (core_str_t){(const char *)l + (n > 12 ? 13 : 12), n > 12 ? n - 13 : 0};
+    ev->reason = (core_str_t){(const char *)l + 12 + skip, n - 12 - skip};
     p->status = code;
     p->flags = (l[7] == '1') ? (p->flags | HTTP_F_MINOR1) : (p->flags & ~HTTP_F_MINOR1);
     p->state = HTTP_ST_HEADERS;
@@ -100,7 +99,7 @@ static bool no_body_status(int status) {
 }
 
 static http_status_t check_length_line(http_parser_t *p, core_str_t value) {
-    uint64_t v = 0;
+    uint64_t v;
     http_status_t st;
     if ((p->flags & HTTP_F_CL) != 0u) {
         return HTTP_E_CONTENT_LENGTH;
@@ -124,11 +123,8 @@ static bool is_chunked_ci(core_str_t v) {
         return false;
     }
     for (i = 0; i < v.len; i++) {
-        char c = v.ptr[i];
-        if (c >= 'A' && c <= 'Z') {
-            c = (char)(c - 'A' + 'a');
-        }
-        if (c != k[i]) {
+        /* k holds only letters, so OR-ing 0x20 matches exactly each letter's two cases. */
+        if (((unsigned char)v.ptr[i] | 0x20u) != (unsigned char)k[i]) {
             return false;
         }
     }
@@ -156,24 +152,26 @@ static http_status_t framing_line(http_parser_t *p, bool trailer, core_str_t nam
     return te ? check_encoding_line(p, value) : HTTP_OK;
 }
 
-/* Index of the colon ending a valid token name, or n when the line has none. */
-static size_t name_end(const unsigned char *l, size_t n) {
-    size_t i = 0;
-    while (i < n && is_tchar(l[i])) {
-        i++;
-    }
-    return (i > 0 && i < n && l[i] == ':') ? i : n;
-}
-
 static bool is_ows(unsigned char c) {
     return c == ' ' || c == '\t';
 }
 
-static void lower_ascii(unsigned char *l, size_t n) {
+/* True if l[0..c) is a token (c > 0); lower-cases it in place. Only token bytes reach the fold, and
+ * '[' '\\' ']' are not token bytes, so "< '^'" below is the same as "<= 'Z'". */
+static bool lower_token(unsigned char *l, size_t c) {
     size_t i;
-    for (i = 0; i < n; i++) {
-        l[i] = (l[i] >= 'A' && l[i] <= 'Z') ? (unsigned char)(l[i] - 'A' + 'a') : l[i];
+    if (c == 0) {
+        return false;
     }
+    for (i = 0; i < c; i++) {
+        if (!is_tchar(l[i])) {
+            return false;
+        }
+        if (l[i] >= 'A' && l[i] < '^') {
+            l[i] = (unsigned char)(l[i] - 'A' + 'a');
+        }
+    }
+    return true;
 }
 
 /* Strips optional whitespace from both ends of l[b..e). */
@@ -189,20 +187,24 @@ static core_str_t trim_ows(const unsigned char *l, size_t b, size_t e) {
 
 http_status_t http_header_line(http_parser_t *p, size_t n, bool trailer, http_event_t *ev) {
     unsigned char *l = p->line;
+    const unsigned char *colon;
     size_t c;
     http_status_t st;
     if (is_ows(l[0])) {
         return HTTP_E_FOLDING;
     }
-    c = name_end(l, n);
-    if (c >= n || !all_text(l + c + 1, n - c - 1)) {
+    colon = memchr(l, ':', n);
+    if (colon == NULL) {
+        return HTTP_E_HEADER;
+    }
+    c = (size_t)(colon - l);
+    if (!all_text(l + c + 1, n - c - 1) || !lower_token(l, c)) {
         return HTTP_E_HEADER;
     }
     if (p->header_count >= HTTP_MAX_HEADERS) {
         return HTTP_E_TOO_MANY_HEADERS;
     }
     p->header_count++;
-    lower_ascii(l, c);
     ev->name = (core_str_t){(const char *)l, c};
     ev->value = trim_ows(l, c + 1, n);
     st = framing_line(p, trailer, ev->name, ev->value);

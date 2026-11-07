@@ -2,19 +2,21 @@
 
 #include "ports/fakes.h"
 
+enum { FS_OPS = PORTS_FAKE_FS_OP_DISCARD + 1 }; /* one counter and one injection slot per op */
+
 static unsigned char *slot_data(const ports_fake_fs_t *fs, size_t idx) { return fs->store + idx * fs->slot_cap; }
 
 static ports_fake_fs_t *as_fs(void *ctx) { return (ports_fake_fs_t *)ctx; }
 
-/* Counts the call and fires a pending injection. Returns true (and *err set) when the call must fail. */
-static bool take_injection(ports_fake_fs_t *fs, ports_fake_fs_op_t op, ports_fs_err_t *err) {
+/* Counts the call. Returns the injected error when the call must fail, else PORTS_FS_OK (ports_fake_fs_inject
+ * never stores PORTS_FS_OK as an error). One-shot without a reset: calls[op] only grows, so it passes inject_nth[op]
+ * once. */
+static ports_fs_err_t take_injection(ports_fake_fs_t *fs, ports_fake_fs_op_t op) {
     fs->calls[op]++;
     if (fs->inject_nth[op] != 0u && fs->calls[op] == fs->inject_nth[op]) {
-        fs->inject_nth[op] = 0u;
-        *err = fs->inject_err[op];
-        return true;
+        return fs->inject_err[op];
     }
-    return false;
+    return PORTS_FS_OK;
 }
 
 static bool name_valid(core_str_t n) {
@@ -35,7 +37,7 @@ static size_t find_id(const ports_fake_fs_t *fs, ports_fs_file_t id, bool commit
     if (id == PORTS_FS_NO_FILE) {
         return PORTS_FAKE_FS_SLOTS;
     }
-    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) {
+    for (size_t i = 0; i != PORTS_FAKE_FS_SLOTS; i++) {
         if (fs->slots[i].id == id && fs->slots[i].committed == committed) {
             return i;
         }
@@ -44,7 +46,7 @@ static size_t find_id(const ports_fake_fs_t *fs, ports_fs_file_t id, bool commit
 }
 
 static size_t find_name(const ports_fake_fs_t *fs, core_str_t name) {
-    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) {
+    for (size_t i = 0; i != PORTS_FAKE_FS_SLOTS; i++) {
         const ports_fake_fs_slot_t *s = &fs->slots[i];
         if (s->id != 0u && s->committed && s->name_len == name.len && memcmp(s->name, name.ptr, name.len) == 0) {
             return i;
@@ -54,7 +56,7 @@ static size_t find_name(const ports_fake_fs_t *fs, core_str_t name) {
 }
 
 static size_t free_slot(const ports_fake_fs_t *fs) {
-    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) {
+    for (size_t i = 0; i != PORTS_FAKE_FS_SLOTS; i++) {
         if (fs->slots[i].id == 0u) {
             return i;
         }
@@ -63,11 +65,8 @@ static size_t free_slot(const ports_fake_fs_t *fs) {
 }
 
 static void clear_slot(ports_fake_fs_slot_t *s) {
-    s->id = 0u;
+    s->id = 0u; /* name, name_len and len are rewritten by create, preload and commit before any read */
     s->committed = false;
-    s->name[0] = '\0';
-    s->name_len = 0u;
-    s->len = 0u;
 }
 
 static uint32_t take_id(ports_fake_fs_t *fs) {
@@ -78,11 +77,11 @@ static uint32_t take_id(ports_fake_fs_t *fs) {
 
 static ports_fs_err_t fs_create(void *ctx, ports_fs_file_t *file) {
     ports_fake_fs_t *fs = as_fs(ctx);
-    ports_fs_err_t err = PORTS_FS_OK;
     if (fs == NULL) {
         return PORTS_FS_E_ARG;
     }
-    if (take_injection(fs, PORTS_FAKE_FS_OP_CREATE, &err)) {
+    ports_fs_err_t err = take_injection(fs, PORTS_FAKE_FS_OP_CREATE);
+    if (err != PORTS_FS_OK) {
         return err;
     }
     if (file == NULL) {
@@ -101,11 +100,11 @@ static ports_fs_err_t fs_create(void *ctx, ports_fs_file_t *file) {
 
 static ports_fs_err_t fs_write(void *ctx, ports_fs_file_t file, const void *buf, size_t len) {
     ports_fake_fs_t *fs = as_fs(ctx);
-    ports_fs_err_t err = PORTS_FS_OK;
     if (fs == NULL) {
         return PORTS_FS_E_ARG;
     }
-    if (take_injection(fs, PORTS_FAKE_FS_OP_WRITE, &err)) {
+    ports_fs_err_t err = take_injection(fs, PORTS_FAKE_FS_OP_WRITE);
+    if (err != PORTS_FS_OK) {
         return err;
     }
     size_t i = find_id(fs, file, false);
@@ -115,7 +114,7 @@ static ports_fs_err_t fs_write(void *ctx, ports_fs_file_t file, const void *buf,
     if (len > fs->slot_cap - fs->slots[i].len) {
         return PORTS_FS_E_NOSPACE;
     }
-    if (len > 0u) {
+    if (len != 0u) {
         memcpy(slot_data(fs, i) + fs->slots[i].len, buf, len);
         fs->slots[i].len += len;
     }
@@ -124,11 +123,11 @@ static ports_fs_err_t fs_write(void *ctx, ports_fs_file_t file, const void *buf,
 
 static ports_fs_err_t fs_commit(void *ctx, ports_fs_file_t file, core_str_t final_name) {
     ports_fake_fs_t *fs = as_fs(ctx);
-    ports_fs_err_t err = PORTS_FS_OK;
     if (fs == NULL) {
         return PORTS_FS_E_ARG;
     }
-    if (take_injection(fs, PORTS_FAKE_FS_OP_COMMIT, &err)) {
+    ports_fs_err_t err = take_injection(fs, PORTS_FAKE_FS_OP_COMMIT);
+    if (err != PORTS_FS_OK) {
         return err;
     }
     size_t i = find_id(fs, file, false);
@@ -139,7 +138,6 @@ static ports_fs_err_t fs_commit(void *ctx, ports_fs_file_t file, core_str_t fina
         return PORTS_FS_E_EXISTS;
     }
     memcpy(fs->slots[i].name, final_name.ptr, final_name.len);
-    fs->slots[i].name[final_name.len] = '\0';
     fs->slots[i].name_len = final_name.len;
     fs->slots[i].committed = true;
     fs->commits++;
@@ -148,11 +146,11 @@ static ports_fs_err_t fs_commit(void *ctx, ports_fs_file_t file, core_str_t fina
 
 static ports_fs_err_t fs_discard(void *ctx, ports_fs_file_t file) {
     ports_fake_fs_t *fs = as_fs(ctx);
-    ports_fs_err_t err = PORTS_FS_OK;
     if (fs == NULL) {
         return PORTS_FS_E_ARG;
     }
-    if (take_injection(fs, PORTS_FAKE_FS_OP_DISCARD, &err)) {
+    ports_fs_err_t err = take_injection(fs, PORTS_FAKE_FS_OP_DISCARD);
+    if (err != PORTS_FS_OK) {
         return err;
     }
     size_t i = find_id(fs, file, false);
@@ -170,16 +168,15 @@ bool ports_fake_fs_init(ports_fake_fs_t *fs, void *storage, size_t cap) {
     if (fs == NULL || storage == NULL || cap < PORTS_FAKE_FS_SLOTS) {
         return false;
     }
-    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) {
+    for (size_t i = 0; i != PORTS_FAKE_FS_SLOTS; i++) {
         clear_slot(&fs->slots[i]);
     }
     fs->store = (unsigned char *)storage;
     fs->slot_cap = cap / PORTS_FAKE_FS_SLOTS;
     fs->next_id = 1u;
-    for (size_t k = 0; k < 4u; k++) {
+    for (size_t k = 0; k != FS_OPS; k++) {
         fs->calls[k] = 0u;
-        fs->inject_nth[k] = 0u;
-        fs->inject_err[k] = PORTS_FS_OK;
+        fs->inject_nth[k] = 0u; /* inject_err[k] is read only after an injection set it together with inject_nth[k] */
     }
     fs->commits = 0u;
     fs->discards = 0u;
@@ -200,11 +197,10 @@ bool ports_fake_fs_preload(ports_fake_fs_t *fs, core_str_t name, core_str_t cont
         find_name(fs, name) != PORTS_FAKE_FS_SLOTS) {
         return false;
     }
-    if (content.len > 0u) {
+    if (content.len != 0u) {
         memcpy(slot_data(fs, i), content.ptr, content.len);
     }
     memcpy(fs->slots[i].name, name.ptr, name.len);
-    fs->slots[i].name[name.len] = '\0';
     fs->slots[i].name_len = name.len;
     fs->slots[i].len = content.len;
     fs->slots[i].committed = true;
@@ -229,7 +225,7 @@ static void set_content(const ports_fake_fs_t *fs, size_t i, core_str_t *content
 }
 
 bool ports_fake_fs_find(const ports_fake_fs_t *fs, core_str_t name, core_str_t *content) {
-    if (fs == NULL || (name.ptr == NULL && name.len > 0u)) {
+    if (fs == NULL || name.ptr == NULL) { /* a NULL name could only be empty, and no committed name is */
         return false;
     }
     size_t i = find_name(fs, name);
@@ -257,7 +253,7 @@ static size_t count_slots(const ports_fake_fs_t *fs, bool committed) {
     if (fs == NULL) {
         return 0u;
     }
-    for (size_t i = 0; i < PORTS_FAKE_FS_SLOTS; i++) {
+    for (size_t i = 0; i != PORTS_FAKE_FS_SLOTS; i++) {
         if (fs->slots[i].id != 0u && fs->slots[i].committed == committed) {
             n++;
         }

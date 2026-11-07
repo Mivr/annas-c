@@ -35,7 +35,7 @@ static void emit(fsname_state_t *st, unsigned char b) {
         return;
     }
     st->started = true;
-    if (st->idx < SCRATCH_LEN) {
+    if (st->idx <= FSNAME_MAX_LEN) {
         st->kept[st->idx] = b;
     }
     st->idx++;
@@ -56,10 +56,8 @@ static void flush_dots(fsname_state_t *st, size_t *run) {
 }
 
 static size_t cut_point(const unsigned char *s) {
-    if (s[FSNAME_MAX_LEN] < 0x80U || s[FSNAME_MAX_LEN] > 0xBFU) {
-        return FSNAME_MAX_LEN;
-    }
-    for (size_t k = 1; k <= 3U; k++) {
+    /* k == 0: s[200] itself; a lead byte or ASCII there means the cut is at 200 already */
+    for (size_t k = 0; k <= 3U; k++) {
         unsigned char b = s[FSNAME_MAX_LEN - k];
         if (b >= 0xC0U) {
             return FSNAME_MAX_LEN - k;
