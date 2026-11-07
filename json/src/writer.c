@@ -167,11 +167,10 @@ void json_w_string(json_writer_t *w, core_str_t s) {
 }
 
 void json_w_number_text(json_writer_t *w, core_str_t text) {
-    if (!usable(w) || !pre_value(w)) {
-        return;
+    if (pre_value(w)) {
+        core_buf_put_str(w->buf, text);
+        post_value(w);
     }
-    core_buf_put_str(w->buf, text);
-    post_value(w);
 }
 
 void json_w_u64(json_writer_t *w, uint64_t v) {
