@@ -102,7 +102,10 @@ url_status_t url_base_normalize(core_str_t raw, core_buf_t *out) {
         raw.ptr += 7;
         raw.len -= 7U;
     }
-    if (raw.len > 0 && raw.ptr[raw.len - 1U] == '/') {
+    if (raw.len == 0) {
+        return URL_E_INVALID; /* nothing left after the scheme */
+    }
+    if (raw.ptr[raw.len - 1U] == '/') {
         raw.len--;
     }
     if (!url_base_is_valid(raw)) {
@@ -245,7 +248,7 @@ bool url_md5_is_valid(core_str_t s) {
     }
     for (size_t i = 0; i < 32U; i++) {
         char c = s.ptr[i];
-        if (c >= 'A' && c <= 'F') {
+        if (core_ascii_lower(c) != c) { /* all_hex32 left only digits and A-F/a-f: this is A-F */
             return false;
         }
     }
