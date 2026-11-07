@@ -65,8 +65,9 @@ core_str_t app_key(const app_deps_t *d);
 bool app_scratch_ok(const app_deps_t *d);
 app_scratch_t *app_scratch(const app_deps_t *d);
 /* The two scrubbing passes over `src` (see app.h): `res` is the final text, at most APP_FIN_MAX bytes, in `src`
- * (no key) or in the scratch (src may live in the work area of the scratch); false when it does not fit. */
-bool app_finalise(const app_deps_t *d, core_str_t src, core_str_t *res);
+ * (no key, or a pass that finds nothing) or in the scratch; false when it does not fit. `in_scratch`: src lives in the
+ * work area of the scratch (pass 1 then copies it). */
+bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str_t *res);
 /* Finalises a CLI outcome text (always fits, see ops.c) and appends it with ONE put. */
 void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text);
 

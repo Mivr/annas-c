@@ -341,10 +341,10 @@ static void reply_open(mctx_t *m) {
 static app_mcp_result_t deliver(mctx_t *m, core_buf_t *out) {
     const app_deps_t *d = &m->s->deps;
     core_str_t fin;
-    bool ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), &fin);
+    bool ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
     if (!ok) {
         nomem(m);
-        ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), &fin);
+        ok = !core_buf_overflow(&m->rb) && app_finalise(d, core_buf_str(&m->rb), false, &fin);
     }
     if (!ok) {
         core_buf_put(out, NULL, 1);
