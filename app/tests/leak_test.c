@@ -30,7 +30,7 @@ static void t_title_equal_to_the_key_on_success(ctest_t *t) {
     int rc = AK_CLI(a, "download", MD5, "--name", KEY, "--format", "pdf");
     ak_check_cli(t, a, rc, 0, "Book downloaded successfully to: /dl/REDACTED.pdf\n", "");
     ak_check_stream(t, a);
-    kit_check_file(t, a->k, KEY ".pdf", "x", 1); /* the real file name is untouched: only the output is scrubbed */
+    kit_check_file(t, a->k, "REDACTED.pdf", "x", 1); /* the committed name is redacted too: no file is named after the key */
 }
 
 static void t_title_containing_the_key_twice_and_around(ctest_t *t) {
@@ -52,21 +52,20 @@ static void t_near_miss_titles_are_kept(ctest_t *t) {
 }
 
 static void t_percent_encoded_key_is_scrubbed_too(ctest_t *t) {
+    /* A key that would need percent-encoding is outside the key class: E_CONFIG, no port call, no echo of it. */
     ak_t *a = ak_begin();
-    ak_env(a, "ANNAS_SECRET_KEY", "ab+cd/ef=gh");
-    kit_set_key(a->k, "ab+cd/ef=gh");
-    CHECK_EQ_STR(t, a->k->key_pct, "ab%2Bcd%2Fef%3Dgh");
-    kit_api(a->k, MD5, "", kit_http(a->k, 200, "OK", JSON_HDR, kit_ok_json(a->k, URL, NULL)));
-    kit_get(a->k, "dl.example.org", 443, "/f/1", kit_http(a->k, 200, "OK", "", "x"));
+    ak_env(a, "ANNAS_SECRET_KEY", "ab+cd/ef=gh-0123456789");
     int rc = AK_CLI(a, "download", MD5, "--name", "ab%2Bcd%2Fef%3Dgh", "--format", "pdf");
-    ak_check_cli(t, a, rc, 0, "Book downloaded successfully to: /dl/REDACTED.pdf\n", "");
-    ak_check_stream(t, a);
-    a = ak_begin(); /* the raw form: '/' and '+' survive the sanitiser only partly, so use the alnum tail */
-    ak_env(a, "ANNAS_SECRET_KEY", "ab+cd=gh");
-    kit_set_key(a->k, "ab+cd=gh");
+    ak_check_cli(t, a, rc, 2, "",
+                 "annas-c: E_CONFIG: ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -\n");
+    ak_check_no_io(t, a);
+    a = ak_begin(); /* a key inside the class is its own percent-encoding: one scrub covers both forms */
+    ak_env(a, "ANNAS_SECRET_KEY", "ab.cd_ef~gh-0123456789");
+    kit_set_key(a->k, "ab.cd_ef~gh-0123456789");
+    CHECK_EQ_STR(t, a->k->key_pct, "ab.cd_ef~gh-0123456789");
     kit_api(a->k, MD5, "", kit_http(a->k, 200, "OK", JSON_HDR, kit_ok_json(a->k, URL, NULL)));
     kit_get(a->k, "dl.example.org", 443, "/f/1", kit_http(a->k, 200, "OK", "", "x"));
-    rc = AK_CLI(a, "download", MD5, "--name", "ab+cd=gh", "--format", "pdf");
+    rc = AK_CLI(a, "download", MD5, "--name", "ab.cd_ef~gh-0123456789", "--format", "pdf");
     ak_check_cli(t, a, rc, 0, "Book downloaded successfully to: /dl/REDACTED.pdf\n", "");
     ak_check_stream(t, a);
 }
@@ -89,7 +88,7 @@ static void t_file_exists_error_echoes_a_scrubbed_name(ctest_t *t) {
     ak_t *a = ak_begin();
     kit_api(a->k, MD5, "", kit_http(a->k, 200, "OK", JSON_HDR, kit_ok_json(a->k, URL, NULL)));
     kit_get(a->k, "dl.example.org", 443, "/f/1", kit_http(a->k, 200, "OK", "", "x"));
-    CHECK(t, kit_preload(a->k, KEY ".pdf", "old"));
+    CHECK(t, kit_preload(a->k, "REDACTED.pdf", "old"));
     int rc = AK_CLI(a, "download", MD5, "--name", KEY, "--format", "pdf");
     ak_check_cli(t, a, rc, 6, "", "annas-c: E_FS: file already exists: REDACTED.pdf\n");
     ak_check_stream(t, a);
@@ -147,7 +146,7 @@ static void t_mcp_tool_results_are_scrubbed(ctest_t *t) {
     ak_check_reply(t, a, call(a, "book_download", "{" HASH ",\"title\":\"" KEY "\",\"format\":\"pdf\"}"),
                    AK_OKR("1", AK_TOOL_OK("Book downloaded successfully to: /dl/REDACTED.pdf")));
     ak_check_stream(t, a);
-    kit_check_file(t, a->k, KEY ".pdf", "x", 1);
+    kit_check_file(t, a->k, "REDACTED.pdf", "x", 1);
     a = ak_begin();
     kit_api(a->k, MD5, "", kit_http(a->k, 403, "Forbidden", JSON_HDR, "{\"download_url\":null,\"error\":\"key " KEY " rejected\"}"));
     ak_check_reply(t, a, call(a, "fast_download_url", "{" HASH "}"),

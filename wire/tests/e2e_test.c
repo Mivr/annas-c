@@ -104,18 +104,17 @@ static void t_the_key_echoed_by_the_server_is_redacted(ctest_t *t) {
 }
 
 static void t_the_key_that_needs_percent_encoding(ctest_t *t) {
+    /* a key outside the key class is E_CONFIG: no request leaves, and the text never echoes the key */
     kw_e2e_setup();
     kw_env_clear();
-    kw_env("ANNAS_SECRET_KEY", "FAKE KEY&x=1/+");
+    kw_env("ANNAS_SECRET_KEY", "FAKE KEY&x=1/+abcd");
     kw_env("ANNAS_BASE_URL", KW_PEER_HOST);
     kw_env("SSL_CERT_FILE", KW_CA_PATH);
-    kw_peer_respond(0, kw_http(400, "Bad Request",
-                               "{\"download_url\":null,\"error\":\"raw FAKE KEY&x=1/+ enc FAKE%20KEY%26x%3D1%2F%2B end\"}"));
-    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 4);
-    CHECK(t, kw_contains(kw_peer_request(0), "&key=FAKE%20KEY%26x%3D1%2F%2B HTTP/1.1"));
-    kw_check_no_key(t, "FAKE KEY&x=1/+");
+    CHECK_EQ_I64(t, KW_CLI("download-url", KW_MD5), 2);
+    CHECK_EQ_U64(t, kw_peer_request(0)[0], 0);
+    kw_check_no_key(t, "FAKE KEY&x=1/+abcd");
     kw_check_no_key(t, "FAKE%20KEY%26x%3D1%2F%2B");
-    CHECK(t, kw_contains(kw_err(), "REDACTED"));
+    CHECK(t, kw_contains(kw_err(), "annas-c: E_CONFIG: ANNAS_SECRET_KEY may only contain letters, digits"));
 }
 
 /* ---- the trust decision ---------------------------------------------------------------------------------------- */
@@ -240,8 +239,8 @@ static void t_a_file_name_made_from_the_key(ctest_t *t) {
     kw_peer_respond(0, kw_http(200, "OK", DL_API));
     kw_peer_respond(1, kw_http(200, "OK", "x"));
     CHECK_EQ_I64(t, KW_CLI("download", KW_MD5, "--name", KW_KEY, "--format", "pdf"), 0);
-    CHECK_EQ_STR(t, kw()->fs.name, KW_KEY ".pdf"); /* the real file keeps its name... */
-    kw_check_no_key(t, KW_KEY);                    /* ...the output does not show it */
+    CHECK_EQ_STR(t, kw()->fs.name, "REDACTED.pdf"); /* no file is named after the key... */
+    kw_check_no_key(t, KW_KEY);                     /* ...and the output does not show it */
     CHECK(t, kw_contains(kw_out(), "REDACTED.pdf"));
 }
 

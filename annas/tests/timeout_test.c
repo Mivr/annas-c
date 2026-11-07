@@ -141,6 +141,29 @@ static void t_saturated_deadline_is_the_maximum_not_a_wrap(ctest_t *t) {
     kit_check_file(t, k, NAME, "data", 4);
 }
 
+/* A hand-built configuration with timeout_ms == 0 (annas_config_load never makes one): the deadline is the start
+ * itself, so the first deadline check (now >= deadline) is a timeout, before the connect. */
+static void t_zero_timeout_expires_at_the_first_check(ctest_t *t) {
+    kit_t *k = kit_begin();
+    k->cfg.timeout_ms = 0;
+    script(k);
+    k->ok_connects = 0; /* the run opens no connection */
+    k->allow_unused = true;
+    CHECK(t, kit_prepare(k));
+    kit_check_err(t, k, run(k), ANNAS_E_TIMEOUT, 0, TIMEOUT_MSG);
+    CHECK_EQ_U64(t, ports_fake_stream_pos(&k->stream), 0);
+    kit_check_fs_untouched(t, k);
+    k = kit_begin(); /* the same for the API call alone */
+    k->cfg.timeout_ms = 0;
+    script(k);
+    k->ok_connects = 0;
+    k->allow_unused = true;
+    CHECK(t, kit_prepare(k));
+    annas_request_t r = kit_req(KIT_MD5);
+    kit_check_err(t, k, kit_fast(k, &r), ANNAS_E_TIMEOUT, 0, TIMEOUT_MSG);
+    CHECK_EQ_U64(t, ports_fake_stream_pos(&k->stream), 0);
+}
+
 CTEST_SUITE("timeout",
     {"deadline_before_the_api_connect", t_deadline_before_the_api_connect},
     {"deadline_after_the_api_connect_before_the_request_write", t_deadline_after_the_api_connect_before_the_request_write},
@@ -155,4 +178,5 @@ CTEST_SUITE("timeout",
     {"fast_deadline_placements", t_fast_deadline_placements},
     {"fast_succeeds_with_the_clock_near_the_maximum", t_fast_succeeds_with_the_clock_near_the_maximum},
     {"download_succeeds_with_the_clock_near_the_maximum", t_download_succeeds_with_the_clock_near_the_maximum},
-    {"saturated_deadline_is_the_maximum_not_a_wrap", t_saturated_deadline_is_the_maximum_not_a_wrap})
+    {"saturated_deadline_is_the_maximum_not_a_wrap", t_saturated_deadline_is_the_maximum_not_a_wrap},
+    {"zero_timeout_expires_at_the_first_check", t_zero_timeout_expires_at_the_first_check})

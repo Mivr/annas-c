@@ -285,6 +285,44 @@ static void t_ddos_guard_only_in_first_1024_bytes(ctest_t *t) {
     kit_check_err(t, k, api_big(k, 403, 1100), ANNAS_E_API, 403, g_msg);
 }
 
+/* A hand-built configuration whose base is not a valid domain (annas_config_load never makes one): E_CONFIG before
+ * any port call, from both operations. */
+static void bad_base(ctest_t *t, const char *base, size_t base_len, bool download) {
+    kit_t *k = kit_begin();
+    memset(k->cfg.base, 'a', sizeof k->cfg.base);
+    for (size_t i = 63; i < sizeof k->cfg.base; i += 64u) {
+        k->cfg.base[i] = '.'; /* labels of 63 bytes: only the total length (253 at most) is wrong */
+    }
+    if (base[0] != '\0') {
+        memset(k->cfg.base, 0, sizeof k->cfg.base);
+        memcpy(k->cfg.base, base, strlen(base));
+    }
+    k->cfg.base[sizeof k->cfg.base - 1u] = '\0';
+    k->cfg.base_len = base_len;
+    kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", kit_ok_json(k, "https://dl.example.org/f", NULL)));
+    k->allow_unused = true;
+    CHECK(t, kit_prepare(k));
+    annas_request_t r = kit_req(KIT_MD5);
+    annas_code_t c = download ? kit_download(k, &r) : kit_fast(k, &r);
+    CHECK_EQ_I64(t, c, ANNAS_E_CONFIG);
+    CHECK_EQ_I64(t, k->err.code, ANNAS_E_CONFIG);
+    CHECK_EQ_I64(t, k->err.http_status, 0);
+    CHECK(t, strncmp(k->err.message, "ANNAS_BASE_URL is not a valid domain", 36) == 0);
+    CHECK_EQ_U64(t, k->err.message_len, strlen(k->err.message));
+    CHECK(t, !kit_contains(k->err.message, k->key));
+    CHECK_EQ_U64(t, ports_fake_stream_pos(&k->stream), 0);
+    kit_check_fs_untouched(t, k);
+}
+
+static void t_a_hand_built_invalid_base_is_a_config_error(ctest_t *t) {
+    for (int d = 0; d < 2; d++) {
+        bad_base(t, "bad host!", 9, d == 1);
+        bad_base(t, "a..b", 4, d == 1);
+        bad_base(t, "", 254, d == 1); /* longer than 253 bytes */
+        bad_base(t, "", 300, d == 1);
+    }
+}
+
 CTEST_SUITE("fast_err",
     {"live_fixture_401", t_live_fixture_401},
     {"live_fixture_404", t_live_fixture_404},
@@ -305,4 +343,5 @@ CTEST_SUITE("fast_err",
     {"check_in_location_is_a_challenge", t_check_in_location_is_a_challenge},
     {"ddos_guard_challenge", t_ddos_guard_challenge},
     {"ddos_guard_controls", t_ddos_guard_controls},
-    {"ddos_guard_only_in_first_1024_bytes", t_ddos_guard_only_in_first_1024_bytes})
+    {"ddos_guard_only_in_first_1024_bytes", t_ddos_guard_only_in_first_1024_bytes},
+    {"a_hand_built_invalid_base_is_a_config_error", t_a_hand_built_invalid_base_is_a_config_error})
