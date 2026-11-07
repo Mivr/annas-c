@@ -454,33 +454,39 @@ static void t_key_that_starts_the_text(ctest_t *t) {
     ak_check_no_io(t, a);
 }
 
-/* A key of one byte (the output grows 8-fold) in every place of a CLI text. */
+/* A key of one byte is outside the key class: E_CONFIG before any port call, and the text never echoes it. */
 static void t_one_byte_key_in_a_cli_text(ctest_t *t) {
     ak_t *a = ak_begin();
     ak_env(a, "ANNAS_SECRET_KEY", "q");
-    kit_set_key(a->k, "q");
-    kit_api(a->k, MD5, "", kit_http(a->k, 200, "OK", JSON_HDR, kit_ok_json(a->k, URL, NULL)));
-    kit_get(a->k, "dl.example.org", 443, "/f/1", kit_http(a->k, 200, "OK", "", "x"));
     int rc = AK_CLI(a, "download", MD5, "--name", "qqq", "--format", "pdf");
-    CHECK_EQ_I64(t, rc, 0);
-    CHECK_EQ_STR(t, ak_out(a), "Book downloaded successfully to: /dl/REDACTEDREDACTEDREDACTED.pdf\n");
-    CHECK_EQ_STR(t, ak_err(a), "");
-    ak_check_stream(t, a);
+    ak_check_cli(t, a, rc, 2, "", "annas-c: E_CONFIG: ANNAS_SECRET_KEY must be 16 to 256 bytes\n");
+    ak_check_no_io(t, a);
 }
 
-/* The percent-encoded key is shorter than "REDACTED": the second pass reads the text it replaces into, so the text
- * behind the first replacement must not be damaged by the later ones. */
+/* A key made of '+' (it would need percent-encoding) is outside the key class: E_CONFIG before any port call, and
+ * neither the key nor its encoded form is echoed. */
 static void t_encoded_key_shorter_than_its_replacement_in_a_cli_text(ctest_t *t) {
     ak_t *a = ak_begin();
-    ak_env(a, "ANNAS_SECRET_KEY", "+");
-    kit_set_key(a->k, "+");
+    ak_env(a, "ANNAS_SECRET_KEY", "++++++++++++++++");
+    int rc = AK_CLI(a, "download", MD5, "--name", "%2B%2B%2Bend", "--format", "pdf");
+    ak_check_cli(t, a, rc, 2, "",
+                 "annas-c: E_CONFIG: ANNAS_SECRET_KEY may only contain letters, digits and the characters . _ ~ -\n");
+    ak_check_no_io(t, a);
+}
+
+/* The shortest key (16 bytes) in every place of a CLI text: each occurrence becomes "REDACTED", none overlaps. */
+static void t_shortest_key_in_every_place_of_a_cli_text(ctest_t *t) {
+    ak_t *a = ak_begin();
+    ak_env(a, "ANNAS_SECRET_KEY", "qqqqqqqqqqqqqqqq");
+    kit_set_key(a->k, "qqqqqqqqqqqqqqqq");
     kit_api(a->k, MD5, "", kit_http(a->k, 200, "OK", JSON_HDR, kit_ok_json(a->k, URL, NULL)));
     kit_get(a->k, "dl.example.org", 443, "/f/1", kit_http(a->k, 200, "OK", "", "x"));
-    int rc = AK_CLI(a, "download", MD5, "--name", "%2B%2B%2Bend", "--format", "pdf");
+    int rc = AK_CLI(a, "download", MD5, "--name", "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqend", "--format", "pdf");
     CHECK_EQ_I64(t, rc, 0);
-    CHECK_EQ_STR(t, ak_out(a), "Book downloaded successfully to: /dl/REDACTEDREDACTEDREDACTEDend.pdf\n");
+    CHECK_EQ_STR(t, ak_out(a), "Book downloaded successfully to: /dl/REDACTEDREDACTEDend.pdf\n");
     CHECK_EQ_STR(t, ak_err(a), "");
     ak_check_stream(t, a);
+    kit_check_file(t, a->k, "REDACTEDREDACTEDend.pdf", "x", 1);
 }
 
 /* Only the first byte of the key needs encoding. */
@@ -604,6 +610,7 @@ CTEST_SUITE("survivor",
     {"key_that_starts_the_text", t_key_that_starts_the_text},
     {"one_byte_key_in_a_cli_text", t_one_byte_key_in_a_cli_text},
     {"encoded_key_shorter_than_its_replacement_in_a_cli_text", t_encoded_key_shorter_than_its_replacement_in_a_cli_text},
+    {"shortest_key_in_every_place_of_a_cli_text", t_shortest_key_in_every_place_of_a_cli_text},
     {"only_the_first_key_byte_is_reserved", t_only_the_first_key_byte_is_reserved},
     {"timeout_next_to_the_int64_minimum", t_timeout_next_to_the_int64_minimum},
     {"dotenv_name_alphabet_edges", t_dotenv_name_alphabet_edges},

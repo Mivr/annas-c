@@ -9,9 +9,10 @@
 #include "ctest/ctest.h"
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
+#define K16 "kkkkkkkkkkkkkkkk"
 #define FORMAT_MSG "format must consist of 1 to 16 ASCII letters or digits"
 
-static char g_key[8];
+static char g_key[24];
 static char g_body[200];
 static char g_want[200];
 
@@ -33,11 +34,11 @@ static void expect_message(ctest_t *t, const char *key, const char *echo, const 
 
 static void t_one_byte_key(ctest_t *t) {
     kit_t *k = kit_begin();
-    kit_set_key(k, "k");
-    kit_check_err(t, k, api_error(k, 401, "k"), ANNAS_E_API, 401, "401: REDACTED");
+    kit_set_key(k, K16); /* the shortest key, 16 bytes */
+    kit_check_err(t, k, api_error(k, 401, K16), ANNAS_E_API, 401, "401: REDACTED");
     k = kit_begin();
-    kit_set_key(k, "k");
-    kit_check_err(t, k, api_error(k, 401, "kk k"), ANNAS_E_API, 401, "401: REDACTEDREDACTED REDACTED");
+    kit_set_key(k, K16);
+    kit_check_err(t, k, api_error(k, 401, K16 K16 " " K16 "k"), ANNAS_E_API, 401, "401: REDACTEDREDACTED REDACTEDk");
 }
 
 static void t_key_at_the_start_of_the_server_text(ctest_t *t) {
@@ -58,65 +59,71 @@ static const struct {
     {'{', "%7B", "%7C", "%6B"}, {'/', "%2F", "%2E", "%3F"}, {':', "%3A", "%3B", "%2A"},
 };
 
+/* The key is "Qk-0123456789abc" (in the key class); the bytes next to the class are never part of a key, so an escape of one of
+ * them in the server text is left alone, whole or next to the key, and cannot split a key match. */
 static void t_percent_echo_of_bytes_next_to_the_unreserved_classes(ctest_t *t) {
     char echo[32];
     for (size_t i = 0; i < COUNT(g_outside); i++) {
-        snprintf(g_key, sizeof g_key, "%c k", g_outside[i].c);
-        snprintf(echo, sizeof echo, "x %s%%20k y", g_outside[i].pct);
-        expect_message(t, g_key, echo, "x REDACTED y");
-        snprintf(echo, sizeof echo, "x %s%%20k y", g_outside[i].low);
-        snprintf(g_want, sizeof g_want, "x %s%%20k y", g_outside[i].low);
-        expect_message(t, g_key, echo, g_want);
-        snprintf(echo, sizeof echo, "x %s%%20k y", g_outside[i].high);
-        snprintf(g_want, sizeof g_want, "x %s%%20k y", g_outside[i].high);
-        expect_message(t, g_key, echo, g_want);
+        snprintf(echo, sizeof echo, "x %sQk-0123456789abc y", g_outside[i].pct);
+        snprintf(g_want, sizeof g_want, "x %sREDACTED y", g_outside[i].pct);
+        expect_message(t, "Qk-0123456789abc", echo, g_want);
+        snprintf(echo, sizeof echo, "x Q%sk-0123456789abc y", g_outside[i].pct); /* an escape inside: not the key */
+        snprintf(g_want, sizeof g_want, "x Q%sk-0123456789abc y", g_outside[i].pct);
+        expect_message(t, "Qk-0123456789abc", echo, g_want);
+        snprintf(echo, sizeof echo, "x %s%s y", g_outside[i].low, g_outside[i].high);
+        snprintf(g_want, sizeof g_want, "x %s%s y", g_outside[i].low, g_outside[i].high);
+        expect_message(t, "Qk-0123456789abc", echo, g_want);
     }
 }
 
+/* The key is "q-1_0123456789ab": pct_encode(key) == key, so an escaped spelling of its bytes ("%71" is 'q', "%2D" is '-', either
+ * hex case) is NOT a form of the key and is left alone; only the raw bytes are redacted. */
 static void t_percent_echo_with_one_wrong_hex_digit_is_left_alone(ctest_t *t) {
-    static const char *const near[] = {"%2C", "%3B", "%0B", "%2b", "%2", "%"};
+    static const char *const near[] = {"%71-1_0123456789ab", "%71%2D%31_0123456789ab", "%71%2d1_0123456789ab",
+                                       "q%2D1_0123456789ab", "q-%31_0123456789ab", "q-1_0123456789a", "%2C", "%2", "%"};
     char echo[32];
     for (size_t i = 0; i < COUNT(near); i++) {
-        snprintf(echo, sizeof echo, "p %s%%20q z", near[i]);
-        snprintf(g_want, sizeof g_want, "p %s%%20q z", near[i]);
-        expect_message(t, "+ q", echo, g_want);
+        snprintf(echo, sizeof echo, "p %s z", near[i]);
+        snprintf(g_want, sizeof g_want, "p %s z", near[i]);
+        expect_message(t, "q-1_0123456789ab", echo, g_want);
     }
-    expect_message(t, "+ q", "p %2B%20q z", "p REDACTED z");
+    expect_message(t, "q-1_0123456789ab", "p q-1_0123456789ab z", "p REDACTED z");
+    expect_message(t, "q-1_0123456789ab", "p q-1_0123456789ab%71-1 z", "p REDACTED%71-1 z");
 }
 
 static void t_unreserved_edge_bytes_are_echoed_raw(ctest_t *t) {
     static const char edges[] = {'A', 'Z', 'a', 'z', '0', '9', '-', '.', '_', '~'};
     char echo[32];
     for (size_t i = 0; i < COUNT(edges); i++) {
-        snprintf(g_key, sizeof g_key, "%c k", edges[i]);
-        snprintf(echo, sizeof echo, "x %c%%20k y", edges[i]);
+        snprintf(g_key, sizeof g_key, "%cmmmmmmmmmmmmmmm", edges[i]); /* the class edge, then letters: sent and echoed raw */
+        snprintf(echo, sizeof echo, "x %cmmmmmmmmmmmmmmm y", edges[i]);
         expect_message(t, g_key, echo, "x REDACTED y");
-        snprintf(g_key, sizeof g_key, "k%c ", edges[i]);
-        snprintf(echo, sizeof echo, "x k%c%%20 y", edges[i]);
+        snprintf(g_key, sizeof g_key, "mmmmmmmmmmmmmmm%c", edges[i]);
+        snprintf(echo, sizeof echo, "x mmmmmmmmmmmmmmm%c y", edges[i]);
         expect_message(t, g_key, echo, "x REDACTED y");
     }
 }
 
 static void t_key_at_the_end_of_the_server_text(ctest_t *t) {
-    expect_message(t, "k", "tail k", "tail REDACTED");
-    expect_message(t, "+", "tail %2B", "tail REDACTED");
-    expect_message(t, "+", "tail +", "tail REDACTED");
-    expect_message(t, "a b", "tail a b", "tail REDACTED");
-    expect_message(t, "+", "tail %2", "tail %2");
-    expect_message(t, "+ q", "tail %2B%20q", "tail REDACTED");
+    expect_message(t, K16, "tail " K16, "tail REDACTED");
+    expect_message(t, "q-1_0123456789ab", "tail %71-1_0123456789ab", "tail %71-1_0123456789ab");
+    expect_message(t, "q-1_0123456789ab", "tail q-1_0123456789ab", "tail REDACTED");
+    expect_message(t, "q.b_0123456789abc", "tail q.b_0123456789abc", "tail REDACTED");
+    expect_message(t, "q-1_0123456789ab", "tail q-1_0123456789a", "tail q-1_0123456789a");
+    expect_message(t, "q-1_0123456789ab", "tail %2", "tail %2");
     expect_message(t, KIT_KEY, "tail " KIT_KEY, "tail REDACTED");
 }
 
 static void t_download_url_starting_with_the_key_is_refused(ctest_t *t) {
-    static const char *const urls[] = {KIT_KEY, KIT_KEY "/f", "k", "k/f"};
+    static const char *const urls[] = {KIT_KEY, KIT_KEY "/f", K16, K16 "/f"};
     for (size_t i = 0; i < COUNT(urls); i++) {
         kit_t *k = kit_begin();
-        kit_set_key(k, i < 2 ? KIT_KEY : "k");
+        kit_set_key(k, i < 2 ? KIT_KEY : K16);
         snprintf(g_body, sizeof g_body, "{\"download_url\":\"%s\"}", urls[i]);
         kit_api(k, KIT_MD5, "", kit_http(k, 200, "OK", "", g_body));
         annas_request_t r = kit_req(KIT_MD5);
         kit_check_err(t, k, kit_fast(k, &r), ANNAS_E_PARSE, 0,
-                      i < 2 ? "download URL contains the secret key" : "download URL contains the secret REDACTEDey");
+                      "download URL contains the secret key");
     }
 }
 
