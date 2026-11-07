@@ -259,3 +259,21 @@ c_test(
         "//ports:ports",
     ],
 )
+
+c_test(
+    name = "a068_test",
+    srcs = [
+        "tests/a068_test.c",
+        "tests/annas_kit.c",
+        "tests/kit.c",
+    ],
+    deps = [
+        ":app",
+        ":testkit",
+        "//annas:annas",
+        "//annas:testkit",
+        "//core:core",
+        "//json:json",
+        "//ports:ports",
+    ],
+)

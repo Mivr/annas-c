@@ -40,3 +40,5 @@ c_test(name = "fs_commit_test", srcs = ["tests/fs_commit_test.c", "tests/kit.c"]
 c_test(name = "fs_real_test", srcs = ["tests/fs_real_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
 
 c_test(name = "fs_direct_test", srcs = ["tests/fs_direct_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
+
+c_test(name = "fs_a068_test", srcs = ["tests/fs_a068_test.c", "tests/kit.c"], deps = [":posix_fs", ":testkit", "//core:core", "//ports:ports"])
