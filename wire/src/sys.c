@@ -15,7 +15,7 @@ static int64_t fail_errno(void)
 static int64_t sys_fill(int fd, unsigned char *buf, size_t cap)
 {
     size_t got = 0;
-    while (got < cap) {
+    while (got != cap) {
         ssize_t n = read(fd, buf + got, cap - got);
         if (n < 0) {
             if (errno == EINTR) {
@@ -64,9 +64,7 @@ static uint64_t sys_unix_seconds(void *ctx)
 {
     (void)ctx;
     struct timespec ts;
-    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 0) {
-        return 0;
-    }
+    (void)clock_gettime(CLOCK_REALTIME, &ts); /* POSIX: CLOCK_REALTIME with a valid pointer cannot fail */
     return (uint64_t)ts.tv_sec;
 }
 

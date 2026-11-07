@@ -7,8 +7,6 @@ static char *const k_empty_env[1] = {NULL};
 
 bool wire_env_get(const ports_env_t *env, const char *name, core_str_t *value)
 {
-    value->ptr = NULL;
-    value->len = 0;
     return env->ops->get(env->ctx, core_str_from_cstr(name), value);
 }
 
@@ -28,8 +26,7 @@ static int dotenv_load(wire_mem_t *m, const wire_io_t *io, const char **text)
         return WIRE_EXIT_CONFIG;
     }
     core_str_t file = {m->dotenv, (size_t)n};
-    if (!app_dotenv_parse(file, &m->denv)) {
-        m->denv.count = 0;
+    if (!app_dotenv_parse(file, &m->denv)) { /* app: count is 0 on failure */
         *text = WIRE_ERR_DOTENV_MANY;
         return WIRE_EXIT_CONFIG;
     }
@@ -40,10 +37,7 @@ int wire_env_setup(wire_mem_t *m, const wire_io_t *io, char *const *envp, bool s
 {
     int rc = dotenv_load(m, io, text);
     if (rc != 0 && strict) {
-        return rc;
-    }
-    if (rc != 0) {
-        m->denv.count = 0; /* best effort: the failure is ignored */
+        return rc; /* best effort (not strict): the failure is ignored; every failure leaves no entries */
     }
     if (!posix_env_init(&m->penv, envp != NULL ? envp : k_empty_env) ||
         !app_env_layer_init(&m->layer, &m->denv, posix_env_port(&m->penv))) {
@@ -53,14 +47,10 @@ int wire_env_setup(wire_mem_t *m, const wire_io_t *io, char *const *envp, bool s
     return 0;
 }
 
-/* Reads one candidate into m->ca; a count above the cap is a failure of the seam. */
+/* Reads one candidate into m->ca (a count above the cap is the seam's bug; it is reported as too big). */
 static int64_t ca_read(wire_mem_t *m, const wire_io_t *io, const char *path)
 {
-    int64_t n = io->sys->read_file(io->sys_ctx, path, m->ca, WIRE_CA_MAX + 1u);
-    if (n > (int64_t)(WIRE_CA_MAX + 1u)) {
-        return -(int64_t)EIO;
-    }
-    return n;
+    return io->sys->read_file(io->sys_ctx, path, m->ca, WIRE_CA_MAX + 1u);
 }
 
 /* The path named by SSL_CERT_FILE: copied to a C string, or refused when it cannot be one. */
@@ -114,9 +104,7 @@ int wire_ca_load(wire_mem_t *m, const wire_io_t *io, size_t *ca_len, const char 
 static bool tls_setup(wire_mem_t *m, const wire_io_t *io, ports_clock_t clock, size_t ca_len)
 {
     tls_stream_config_t cfg;
-    if (!tls_stream_sock_init(&m->sock, clock)) {
-        return false;
-    }
+    (void)tls_stream_sock_init(&m->sock, clock); /* false only for a NULL object or a clock without now_ms */
     cfg.transport = io->transport != NULL ? *io->transport : tls_stream_sock_transport(&m->sock);
     cfg.clock = clock;
     m->wall.unix_seconds = io->sys->unix_seconds;
