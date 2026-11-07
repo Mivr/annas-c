@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <string.h>
 
 #include "posix_fs/src/internal.h"
 
@@ -55,23 +56,26 @@ ports_fs_err_t pfs_map_err(int64_t rc, bool link) {
     return PORTS_FS_E_IO;
 }
 
-/* Append all len bytes at slot->size. On failure *written is the count that reached the file. */
-static ports_fs_err_t write_all(const posix_fs_t *fs, const posix_fs_slot_t *slot, const char *buf, size_t len,
-                                size_t *written) {
+typedef struct {
+    ports_fs_err_t err;
+    size_t written; /* bytes that reached the file, also on failure */
+} write_res_t;
+
+/* Append all len bytes at slot->size. */
+static write_res_t write_all(const posix_fs_t *fs, const posix_fs_slot_t *slot, const char *buf, size_t len) {
     size_t done = 0;
     while (done < len) {
-        int64_t rc = pfs_pwrite(fs, slot->fd, buf + done, len - done, slot->size + done);
-        *written = done;
-        if (rc < 0) {
-            return pfs_map_err(rc, false);
+        size_t left = len - done;
+        int64_t rc = pfs_pwrite(fs, slot->fd, buf + done, left, slot->size + done);
+        if (rc <= 0) { /* -errno, or a pwrite that made no progress (mapped to PORTS_FS_E_IO) */
+            return (write_res_t){pfs_map_err(rc, false), done};
         }
-        if (rc == 0 || (uint64_t)rc > len - done) {
-            return PORTS_FS_E_IO;
+        if ((uint64_t)rc > left) {
+            return (write_res_t){PORTS_FS_E_IO, done};
         }
         done += (size_t)rc;
     }
-    *written = done;
-    return PORTS_FS_OK;
+    return (write_res_t){PORTS_FS_OK, done};
 }
 
 ports_fs_err_t posix_fs_write(posix_fs_t *fs, ports_fs_file_t file, const void *buf, size_t len) {
@@ -85,19 +89,19 @@ ports_fs_err_t posix_fs_write(posix_fs_t *fs, ports_fs_file_t file, const void *
     if (slot->broken) {
         return PORTS_FS_E_IO;
     }
-    if (slot->size > (uint64_t)INT64_MAX || len > (uint64_t)INT64_MAX - slot->size) {
+    /* slot->size <= INT64_MAX always: it only grows here, by a len that passed this check. */
+    if (len > (uint64_t)INT64_MAX - slot->size) {
         return PORTS_FS_E_NOSPACE;
     }
-    size_t written = 0;
-    ports_fs_err_t err = write_all(fs, slot, (const char *)buf, len, &written);
-    if (err == PORTS_FS_OK) {
+    write_res_t res = write_all(fs, slot, (const char *)buf, len);
+    if (res.err == PORTS_FS_OK) {
         slot->size += len;
         return PORTS_FS_OK;
     }
-    if (written > 0 && pfs_ftruncate(fs, slot->fd, slot->size) < 0) {
+    if (res.written > 0 && pfs_ftruncate(fs, slot->fd, slot->size) < 0) {
         slot->broken = true;
     }
-    return err;
+    return res.err;
 }
 
 static bool name_valid(core_str_t name) {
@@ -124,9 +128,7 @@ ports_fs_err_t posix_fs_commit(posix_fs_t *fs, ports_fs_file_t file, core_str_t 
         return PORTS_FS_E_IO;
     }
     char name[NAME_MAX_LEN + 1u];
-    for (size_t i = 0; i < final_name.len; i++) {
-        name[i] = final_name.ptr[i];
-    }
+    memcpy(name, final_name.ptr, final_name.len);
     name[final_name.len] = '\0';
     int64_t rc = pfs_fsync(fs, slot->fd);
     if (rc < 0) {
