@@ -46,9 +46,13 @@ size_t json_utf8_seq_len(const unsigned char *p, size_t n) {
 
 /* ---- string decoding ---- */
 
-/* The input byte at pos, or 0 past the end (0 is neither a hex digit nor a valid escape letter, so a read
- * past the end fails exactly where a bounds test would have). */
-static unsigned char at(const json_parser_t *p, size_t pos) { return pos < p->n ? p->s[pos] : 0; }
+/* The input byte at pos, or NULL at and past the end. */
+static const unsigned char *byte_at(const json_parser_t *p, size_t pos) { return pos < p->n ? p->s + pos : NULL; }
+
+bool json_byte_is(const json_parser_t *p, size_t pos, unsigned char ch) {
+    const unsigned char *b = byte_at(p, pos);
+    return b != NULL && *b == ch;
+}
 
 static json_err_t fail(json_parser_t *p, json_err_t e, size_t off) {
     p->err = off;
@@ -56,16 +60,17 @@ static json_err_t fail(json_parser_t *p, json_err_t e, size_t off) {
 }
 
 /* Hex value of the 4 digits at pos. Returns SIZE_MAX when valid, else the offset of the first bad digit; at
- * the end of the input that is p->n (at() is 0 there, not a digit, and pos <= p->n on entry). */
+ * the end of the input that is p->n (pos <= p->n on entry). */
 static size_t hex4(const json_parser_t *p, size_t pos, uint32_t *cp) {
     uint32_t v = 0;
     size_t k;
+    const unsigned char *b;
     for (k = 0; k < 4; k++) {
-        int d = core_parse_hex_nibble((char)at(p, pos + k));
-        if (d < 0) {
+        b = byte_at(p, pos + k);
+        if (b == NULL || core_parse_hex_nibble((char)*b) < 0) {
             return pos + k;
         }
-        v = (v << 4) | (uint32_t)d;
+        v = (v << 4) | (uint32_t)core_parse_hex_nibble((char)*b);
     }
     *cp = v;
     return SIZE_MAX;
@@ -103,7 +108,7 @@ static size_t put_cp(char *dst, size_t at, uint32_t cp) {
 
 /* A well-formed "\uDC00..\uDFFF" escape at pos? */
 static bool low_escape_at(const json_parser_t *p, size_t pos, uint32_t *lo) {
-    if (at(p, pos) != '\\' || at(p, pos + 1) != 'u') {
+    if (!json_byte_is(p, pos, '\\') || !json_byte_is(p, pos + 1, 'u')) {
         return false;
     }
     if (hex4(p, pos + 2, lo) != SIZE_MAX) {
@@ -151,11 +156,15 @@ static unsigned char simple_escape(unsigned char c) {
 
 static json_err_t esc(json_parser_t *p, char *dst, size_t *o) {
     size_t b = p->i;
+    const unsigned char *c = byte_at(p, b + 1);
     unsigned char r;
-    if (at(p, b + 1) == 'u') {
+    if (c == NULL) {
+        return fail(p, JSON_E_SYNTAX, b + 1);
+    }
+    if (*c == 'u') {
         return esc_unicode(p, dst, o);
     }
-    r = simple_escape(at(p, b + 1));
+    r = simple_escape(*c);
     if (r == 0) {
         return fail(p, JSON_E_SYNTAX, b + 1);
     }
