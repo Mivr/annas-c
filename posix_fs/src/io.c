@@ -56,26 +56,25 @@ ports_fs_err_t pfs_map_err(int64_t rc, bool link) {
     return PORTS_FS_E_IO;
 }
 
-typedef struct {
-    ports_fs_err_t err;
-    size_t written; /* bytes that reached the file, also on failure */
-} write_res_t;
-
-/* Append all len bytes at slot->size. */
-static write_res_t write_all(const posix_fs_t *fs, const posix_fs_slot_t *slot, const char *buf, size_t len) {
+/* Append all len bytes at slot->size. Returns the bytes that reached the file: len on success, else fewer, and then
+ * *err is the failure (it is not written on success). */
+static size_t write_all(const posix_fs_t *fs, const posix_fs_slot_t *slot, const char *buf, size_t len,
+                        ports_fs_err_t *err) {
     size_t done = 0;
     while (done < len) {
         size_t left = len - done;
         int64_t rc = pfs_pwrite(fs, slot->fd, buf + done, left, slot->size + done);
         if (rc <= 0) { /* -errno, or a pwrite that made no progress (mapped to PORTS_FS_E_IO) */
-            return (write_res_t){pfs_map_err(rc, false), done};
+            *err = pfs_map_err(rc, false);
+            return done;
         }
         if ((uint64_t)rc > left) {
-            return (write_res_t){PORTS_FS_E_IO, done};
+            *err = PORTS_FS_E_IO;
+            return done;
         }
         done += (size_t)rc;
     }
-    return (write_res_t){PORTS_FS_OK, done};
+    return done;
 }
 
 ports_fs_err_t posix_fs_write(posix_fs_t *fs, ports_fs_file_t file, const void *buf, size_t len) {
@@ -93,15 +92,16 @@ ports_fs_err_t posix_fs_write(posix_fs_t *fs, ports_fs_file_t file, const void *
     if (len > (uint64_t)INT64_MAX - slot->size) {
         return PORTS_FS_E_NOSPACE;
     }
-    write_res_t res = write_all(fs, slot, (const char *)buf, len);
-    if (res.err == PORTS_FS_OK) {
+    ports_fs_err_t err = PORTS_FS_OK;
+    size_t written = write_all(fs, slot, (const char *)buf, len, &err);
+    if (written == len) {
         slot->size += len;
         return PORTS_FS_OK;
     }
-    if (res.written > 0 && pfs_ftruncate(fs, slot->fd, slot->size) < 0) {
+    if (written > 0 && pfs_ftruncate(fs, slot->fd, slot->size) < 0) {
         slot->broken = true;
     }
-    return res.err;
+    return err;
 }
 
 static bool name_valid(core_str_t name) {
