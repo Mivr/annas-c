@@ -49,8 +49,7 @@ static int wait_fd(const tls_stream_sock_t *s, short events, uint64_t deadline_m
             return ETIMEDOUT;
         }
         pfd.fd = s->fd;
-        pfd.events = events;
-        pfd.revents = 0;
+        pfd.events = events; /* revents is output only: poll() sets it */
         rc = poll(&pfd, 1, poll_timeout(s, deadline_ms));
         if (rc > 0) {
             return 0;
@@ -75,7 +74,7 @@ static int resolve_error(int gai)
 /* Finish a non-blocking connect: wait for writability, then read SO_ERROR. */
 static int finish_connect(const tls_stream_sock_t *s, uint64_t deadline_ms)
 {
-    int err = 0;
+    int err; /* written by getsockopt() whenever it succeeds, the only way to read it */
     socklen_t len = (socklen_t) sizeof err;
     int e = wait_fd(s, POLLOUT, deadline_ms);
     if (e != 0) {
@@ -91,8 +90,7 @@ static int try_address(tls_stream_sock_t *s, const struct addrinfo *ai, uint64_t
 {
     int e;
     s->fd = socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC, ai->ai_protocol);
-    if (s->fd < 0) {
-        s->fd = -1;
+    if (s->fd < 0) { /* socket() returned -1, which is what s->fd now holds */
         return errno;
     }
     if (connect(s->fd, ai->ai_addr, ai->ai_addrlen) == 0) {
@@ -122,9 +120,9 @@ static int connect_any(tls_stream_sock_t *s, const struct addrinfo *list, uint64
 static int sock_connect(void *ctx, core_str_t host, uint16_t port, uint64_t deadline_ms)
 {
     tls_stream_sock_t *s = ctx;
-    char name[HOST_MAX + 1u];
-    char service[8];
-    struct addrinfo hints;
+    char name[HOST_MAX + 1u] = ""; /* all zero: host.len <= HOST_MAX leaves the terminator in place */
+    char service[8];            /* "65535" and the NUL: a uint16_t port always fits */
+    struct addrinfo hints = {.ai_socktype = SOCK_STREAM, .ai_flags = AI_NUMERICSERV};
     struct addrinfo *list = NULL;
     int rc;
     int e;
@@ -138,14 +136,7 @@ static int sock_connect(void *ctx, core_str_t host, uint16_t port, uint64_t dead
         return ETIMEDOUT;
     }
     memcpy(name, host.ptr, host.len);
-    name[host.len] = '\0';
-    rc = snprintf(service, sizeof service, "%u", (unsigned) port);
-    if (rc < 0 || (size_t) rc >= sizeof service) {
-        return EINVAL;
-    }
-    memset(&hints, 0, sizeof hints);
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_NUMERICSERV;
+    (void) snprintf(service, sizeof service, "%u", (unsigned) port); /* cannot truncate or fail, see service[] */
     rc = getaddrinfo(name, service, &hints, &list);
     if (rc != 0) {
         return resolve_error(rc);

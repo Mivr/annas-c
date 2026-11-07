@@ -1,7 +1,6 @@
 /* tls_stream/src/tls_stream.c: a ports_stream_t over mbedTLS (client only). See tls_stream/tls_stream.h for the
  * contract; the trust rules live here: VERIFY_REQUIRED, the host name checked, certificate time from the injected
  * wall clock, and a transport end of file without close_notify is an error, never an end of stream. */
-#include <limits.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -30,6 +29,8 @@ static const tls_obj_t *cobj_of(const tls_stream_t *s)
 
 /* ---- certificate time: the injected wall clock, installed as mbedTLS's time function ---- */
 
+#define WALL_MAX_SECONDS UINT64_C(253402300799) /* 9999-12-31T23:59:59Z; later is treated as unknown (0) */
+
 static mbedtls_time_t wall_now(mbedtls_time_t *out)
 {
     const tls_obj_t *o = tls_active();
@@ -38,7 +39,10 @@ static mbedtls_time_t wall_now(mbedtls_time_t *out)
     if (o != NULL) {
         secs = o->cfg.wall.unix_seconds(o->cfg.wall.ctx);
     }
-    v = secs > (uint64_t) LONG_MAX ? (mbedtls_time_t) LONG_MAX : (mbedtls_time_t) secs;
+    if (secs > WALL_MAX_SECONDS) {
+        secs = 0;
+    }
+    v = (mbedtls_time_t) secs;
     if (out != NULL) {
         *out = v;
     }
@@ -87,16 +91,15 @@ static ports_err_t load_ca(tls_obj_t *o)
 static ports_err_t configure(tls_obj_t *o, core_str_t host)
 {
     char name[HOST_MAX + 1u];
+    int defaults;
     memcpy(name, host.ptr, host.len);
     name[host.len] = '\0';
-    if (mbedtls_ssl_config_defaults(&o->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
-                                    MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
-        return PORTS_E_NET;
-    }
+    defaults = mbedtls_ssl_config_defaults(&o->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+                                           MBEDTLS_SSL_PRESET_DEFAULT);
     mbedtls_ssl_conf_authmode(&o->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&o->conf, &o->ca, NULL);
     mbedtls_ssl_conf_rng(&o->conf, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE);
-    if (mbedtls_ssl_setup(&o->ssl, &o->conf) != 0 || mbedtls_ssl_set_hostname(&o->ssl, name) != 0) {
+    if (defaults != 0 || mbedtls_ssl_setup(&o->ssl, &o->conf) != 0 || mbedtls_ssl_set_hostname(&o->ssl, name) != 0) {
         return PORTS_E_NET;
     }
     mbedtls_ssl_set_bio(&o->ssl, o, tls_bio_send, tls_bio_recv, NULL);
@@ -250,7 +253,6 @@ static ports_err_t port_close(void *ctx)
         return PORTS_E_CLOSED;
     }
     if (o->sticky == PORTS_OK) {
-        o->cause = PORTS_OK;
         /* best effort: the peer may be gone, and close() still releases everything */
         int rc = mbedtls_ssl_close_notify(&o->ssl);
         (void) rc;

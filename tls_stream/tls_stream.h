@@ -11,7 +11,8 @@
  *   - The host name given to connect() is both the SNI name and the name the certificate must match
  *     (subject alternative name / common name rules of mbedTLS). A mismatch -> PORTS_E_TLS.
  *   - Certificate time comes from the injected wall clock (below), never from the OS. A wall clock that
- *     returns 0 ("unknown") makes every certificate "not yet valid": fail closed.
+ *     returns 0 ("unknown") makes every certificate "not yet valid": fail closed. A value after
+ *     9999-12-31T23:59:59Z (253402300799) is treated as unknown (0).
  *   - A peer close_notify is end of stream (read OK, n == 0). A transport end of file WITHOUT close_notify
  *     (at a record boundary or inside a record, during the handshake or after it) is PORTS_E_NET and is
  *     NEVER reported as end of stream: it is a truncated message. A fatal alert from the peer is
@@ -124,7 +125,7 @@ tls_stream_transport_t tls_stream_sock_transport(tls_stream_sock_t *s);
 /* unix_seconds(): seconds since 1970-01-01T00:00:00Z, or 0 when unknown (then every certificate is "not yet
  * valid"). The module installs a trampoline with mbedtls_platform_set_time() at connect(); the trampoline
  * calls this function with `ctx` of the connecting object and returns it as mbedtls_time_t. No ambient
- * time() is ever used. The monotonic cfg.clock is for deadlines only and is never used for certificates. */
+ * time() is ever used. A value after 9999-12-31T23:59:59Z (253402300799) is treated as unknown (0). The monotonic cfg.clock is for deadlines only and is never used for certificates. */
 typedef struct {
     uint64_t (*unix_seconds)(void *ctx);
     void *ctx;
