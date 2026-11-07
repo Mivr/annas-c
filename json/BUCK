@@ -32,3 +32,7 @@ c_test(name = "corpus_test", srcs = ["tests/corpus_test.c"], deps = [":json", "/
 c_test(name = "roundtrip_test", srcs = ["tests/roundtrip_test.c"], deps = [":json", "//core:core"])
 c_test(name = "arena_test", srcs = ["tests/arena_test.c"], deps = [":json", "//core:core"])
 c_test(name = "complexity_test", srcs = ["tests/complexity_test.c"], deps = [":json", "//core:core"])
+
+c_test(name = "survivor_input_test", srcs = ["tests/survivor_input_test.c"], deps = [":json", "//core:core"])
+c_test(name = "survivor_keys_test", srcs = ["tests/survivor_keys_test.c"], deps = [":json", "//core:core"])
+c_test(name = "survivor_text_test", srcs = ["tests/survivor_text_test.c"], deps = [":json", "//core:core"])
