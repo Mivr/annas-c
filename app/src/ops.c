@@ -3,11 +3,10 @@
 #include <string.h>
 
 core_str_t app_key(const app_deps_t *d) {
-    core_str_t v = {NULL, 0};
-    if (d == NULL || d->env.ops == NULL || d->env.ops->get == NULL) {
-        return v;
-    }
-    if (!d->env.ops->get(d->env.ctx, core_str_from_cstr("ANNAS_SECRET_KEY"), &v)) {
+    core_str_t v; /* set by get when it finds the name (ports.h), else below */
+    bool found = d != NULL && d->env.ops != NULL && d->env.ops->get != NULL &&
+                 d->env.ops->get(d->env.ctx, core_str_from_cstr("ANNAS_SECRET_KEY"), &v);
+    if (!found) {
         v.ptr = NULL;
         v.len = 0;
     }
@@ -19,29 +18,26 @@ static bool unreserved(unsigned char c) {
            c == '_' || c == '~';
 }
 
-static size_t match_raw(core_str_t s, size_t pos, core_str_t key) {
-    if (s.len - pos < key.len || memcmp(s.ptr + pos, key.ptr, key.len) != 0) {
-        return 0;
-    }
-    return key.len;
-}
+/* The three matchers take the rest of the text, from the candidate position on, and return the length of the
+ * match at its start (0: none). The key is never empty here (see app_finalise). */
+static size_t match_raw(core_str_t rest, core_str_t key) { return core_str_starts_with(rest, key) ? key.len : 0; }
 
-static size_t match_pct(core_str_t s, size_t pos, core_str_t key) {
+static size_t match_pct(core_str_t rest, core_str_t key) {
     static const char hex[] = "0123456789ABCDEF";
-    size_t j = pos;
+    core_str_t t = rest;
     for (size_t i = 0; i < key.len; i++) {
         unsigned char c = (unsigned char)key.ptr[i];
         size_t w = unreserved(c) ? 1u : 3u;
-        if (s.len - j < w) {
+        if (t.len < w) {
             return 0;
         }
-        if (w == 1u ? (unsigned char)s.ptr[j] != c
-                    : (s.ptr[j] != '%' || s.ptr[j + 1u] != hex[c >> 4] || s.ptr[j + 2u] != hex[c & 15u])) {
+        if (w == 1u ? (unsigned char)t.ptr[0] != c : (t.ptr[0] != '%' || t.ptr[1] != hex[c >> 4] || t.ptr[2] != hex[c & 15u])) {
             return 0;
         }
-        j += w;
+        t.ptr += w;
+        t.len -= w;
     }
-    return j - pos;
+    return rest.len - t.len;
 }
 
 /* One scrubbing pass: the occurrences (raw or percent-encoded key) are replaced by "REDACTED". */
@@ -50,46 +46,45 @@ typedef struct {
     bool pct;
 } pass_t;
 
-static size_t match_at(core_str_t s, size_t pos, const pass_t *p) {
-    return p->pct ? match_pct(s, pos, p->key) : match_raw(s, pos, p->key);
-}
-
-static bool has_match(core_str_t src, const pass_t *p) {
-    for (size_t i = 0; i < src.len; i++) {
-        if (match_at(src, i, p) > 0) {
-            return true;
-        }
-    }
-    return false;
-}
+static size_t match_at(core_str_t rest, const pass_t *p) { return p->pct ? match_pct(rest, p->key) : match_raw(rest, p->key); }
 
 /* Writes the pass over `src` into dst[0..cap); false when it does not fit. */
 static bool pass_write(core_str_t src, const pass_t *p, char *dst, size_t cap, size_t *n_out) {
     static const char red[] = "REDACTED";
-    size_t pos = 0;
+    core_str_t rest = src;
     size_t n = 0;
-    while (pos < src.len) {
-        size_t m = match_at(src, pos, p);
+    while (rest.len > 0) {
+        size_t m = match_at(rest, p);
         size_t w = m > 0 ? sizeof red - 1u : 1u;
+        size_t step = m > 0 ? m : w; /* w is 1 without a match */
         if (cap - n < w) {
             return false;
         }
         if (m > 0) {
             memcpy(dst + n, red, w);
-            pos += m;
         } else {
-            dst[n] = src.ptr[pos];
-            pos++;
+            dst[n] = rest.ptr[0];
         }
+        rest.ptr += step;
+        rest.len -= step;
         n += w;
     }
     *n_out = n;
     return true;
 }
 
+static bool has_match(core_str_t src, const pass_t *p) {
+    for (core_str_t rest = src; rest.len > 0; rest.ptr++, rest.len--) {
+        if (match_at(rest, p) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* `res` = the pass over `src`: src itself when nothing matches and a copy is not forced. */
 static bool pass_run(core_str_t src, const pass_t *p, bool force_copy, char *dst, core_str_t *res) {
-    size_t n = 0;
+    size_t n;
     if (!force_copy && !has_match(src, p)) {
         *res = src;
         return true;
@@ -123,18 +118,20 @@ bool app_finalise(const app_deps_t *d, core_str_t src, bool in_scratch, core_str
     pass_t p1 = {app_key(d), false};
     pass_t p2 = {p1.key, true};
     *res = src;
-    if (p1.key.len > 0 && !pass_run(src, &p1, in_scratch, sc->p1, res)) {
+    if (p1.key.len == 0) {
+        return src.len <= APP_FIN_MAX; /* nothing to scrub */
+    }
+    if (!pass_run(src, &p1, in_scratch, sc->p1, res)) {
         return false;
     }
-    if (p1.key.len > 0 && p1.key.len <= ANNAS_KEY_MAX && pct_differs(p1.key) &&
-        !pass_run(*res, &p2, false, sc->u.p2, res)) {
+    if (p1.key.len <= ANNAS_KEY_MAX && pct_differs(p1.key) && !pass_run(*res, &p2, false, sc->u.p2, res)) {
         return false;
     }
-    return res->len <= APP_FIN_MAX;
+    return res->len <= APP_FIN_MAX; /* src itself is returned by a pass that finds nothing */
 }
 
 void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text, bool in_scratch) {
-    core_str_t fin = {NULL, 0};
+    core_str_t fin;
     if (app_finalise(d, text, in_scratch, &fin)) {
         core_buf_put_str(dst, fin);
     } else {
@@ -143,10 +140,11 @@ void app_emit(const app_deps_t *d, core_buf_t *dst, core_str_t text, bool in_scr
 }
 
 size_t app_echo_cut(core_str_t in, char *out) {
-    size_t n = in.len < APP_ECHO_MAX ? in.len : APP_ECHO_MAX;
-    for (size_t i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)in.ptr[i];
-        out[i] = (c < 0x20u || c == 0x7fu) ? '?' : (char)c;
+    size_t n = 0;
+    while (n < in.len && n < APP_ECHO_MAX) {
+        unsigned char c = (unsigned char)in.ptr[n];
+        out[n] = (c < 0x20u || c == 0x7fu) ? '?' : (char)c;
+        n++;
     }
     return n;
 }
