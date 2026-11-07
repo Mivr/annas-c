@@ -3,11 +3,12 @@
 static bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\v' || c == '\f'; }
 
 static core_str_t trim_ws(core_str_t s) {
-    while (s.len > 0 && is_ws(s.ptr[0])) {
-        s.ptr++;
-        s.len--;
-    }
-    while (s.len > 0 && is_ws(s.ptr[s.len - 1u])) {
+    while (s.len > 0) {
+        if (is_ws(s.ptr[0])) {
+            s.ptr++;
+        } else if (!is_ws(s.ptr[s.len - 1u])) {
+            break;
+        }
         s.len--;
     }
     return s;
@@ -43,9 +44,7 @@ static bool parse_line(core_str_t line, app_dotenv_entry_t *e) {
         line.len--;
     }
     line = trim_ws(line);
-    if (line.len == 0 || line.ptr[0] == '#') {
-        return false;
-    }
+    /* No test for an empty line or a '#' comment: neither has a valid name before an '='. */
     if (!core_str_split_once(line, core_str_from_cstr("="), &name, &value)) {
         return false;
     }

@@ -10,7 +10,6 @@ typedef struct {
     head_t head;
     bool follow;        /* the last response was a redirect to follow */
     uint64_t bytes;
-    core_str_t name;
 } dl_t;
 
 static annas_code_t dl_fail(const dl_t *d, annas_code_t code, int status, const char *text) {
@@ -47,16 +46,17 @@ static annas_code_t dl_write(dl_t *d, ports_fs_file_t f, core_str_t data) {
 static annas_code_t dl_commit(dl_t *d, ports_fs_file_t f) {
     annas_ctx_t *c = d->ctx;
     annas_code_t r = op_check(c, d->err);
+    core_str_t name = {d->w->res->name, d->w->res->name_len};
     ports_fs_err_t e;
     if (r != ANNAS_OK) {
         return r;
     }
-    e = c->fs.ops->commit(c->fs.ctx, f, d->name);
+    e = c->fs.ops->commit(c->fs.ctx, f, name);
     if (e == PORTS_FS_OK) {
         return ANNAS_OK;
     }
     if (e == PORTS_FS_E_EXISTS) {
-        msg_body_t body = {core_str_from_cstr("file already exists: "), d->name, MSG_NO_CUT};
+        msg_body_t body = {core_str_from_cstr("file already exists: "), name, MSG_NO_CUT};
         return msg_fail(d->err, ANNAS_E_FS, 0, ctx_key(c), &body);
     }
     return dl_fail(d, ANNAS_E_FS, 0, "could not save the file");
@@ -100,7 +100,11 @@ static annas_code_t dl_transfer(dl_t *d, exch_t *x) {
 
 static annas_code_t dl_browser(const dl_t *d) { return dl_fail(d, ANNAS_E_BROWSER_CHECK, 0, BROWSER_MESSAGE); }
 
-/* Neither 200 nor a redirect: look at the first body bytes for a challenge, else E_HTTP. */
+/* A body event is at most one stream read (WS_IO_CAP bytes): the last one copied by dl_reject still fits. */
+_Static_assert(HTTP_CHALLENGE_PREFIX + WS_IO_CAP <= WS_BODY_CAP, "challenge prefix copy does not fit");
+
+/* Neither 200 nor a redirect: look at the first body bytes for a challenge, else E_HTTP. Reads stop once
+ * HTTP_CHALLENGE_PREFIX bytes are in; http_detect_challenge itself looks at no more than that. */
 NOINLINE static annas_code_t dl_reject(dl_t *d, exch_t *x) {
     http_event_t ev;
     core_str_t none = {NULL, 0};
@@ -115,9 +119,8 @@ NOINLINE static annas_code_t dl_reject(dl_t *d, exch_t *x) {
             break;
         }
         if (ev.kind == HTTP_EV_BODY) {
-            size_t take = ev.data.len < HTTP_CHALLENGE_PREFIX - n ? ev.data.len : HTTP_CHALLENGE_PREFIX - n;
-            memcpy(d->w->body + n, ev.data.ptr, take);
-            n += take;
+            memcpy(d->w->body + n, ev.data.ptr, ev.data.len);
+            n += ev.data.len;
         }
     }
     core_str_t prefix = {(const char *)d->w->body, n};
@@ -151,19 +154,15 @@ static annas_code_t dl_head(dl_t *d, exch_t *x) {
         if (ev.kind == HTTP_EV_HEADERS_END) {
             return dl_dispatch(d, x);
         }
-        head_note(&d->head, &ev, d->loc, HTTP_MAX_LINE);
+        head_note(&d->head, &ev, d->loc);
     }
 }
 
-NOINLINE static annas_code_t dl_hop(dl_t *d, const http_url_t *u) {
-    core_buf_t rb;
+/* One request on its own connection, up to the decision on its response. */
+NOINLINE static annas_code_t dl_hop(dl_t *d, const http_url_t *u, core_str_t request) {
     exch_t x;
-    if (!core_buf_init(&rb, (char *)d->w->body, WS_BODY_CAP) ||
-        http_request_write(&rb, u, core_str_from_cstr(ANNAS_VERSION)) != HTTP_OK) {
-        return dl_fail(d, ANNAS_E_PARSE, 0, "download URL must be an absolute https URL");
-    }
     exch_init(&x, d->ctx, d->err, d->w);
-    annas_code_t c = exch_open(&x, u->host, u->port, core_buf_str(&rb));
+    annas_code_t c = exch_open(&x, u->host, u->port, request);
     if (c == ANNAS_OK) {
         c = dl_head(d, &x);
     }
@@ -191,31 +190,33 @@ static annas_code_t dl_resolve(dl_t *d, http_redirects_t *rd, const http_url_t *
     return dl_fail(d, ANNAS_E_HTTP, d->head.status, text);
 }
 
-/* Follows the chain starting at the API's download URL until a response is final. */
+/* Follows the chain starting at the API's download URL until a response is final. A URL that http_url_split
+ * accepts always gives a request (valid host, port and target, far below WS_BODY_CAP), and the buffers are the
+ * workspace's own, so every failure of the first check is a URL that is not absolute https. */
 NOINLINE static annas_code_t dl_run(dl_t *d) {
     unsigned char *bufs[2] = {d->w->rest, d->w->rest + WS_URL_BUF};
     const annas_fast_result_t *f = &d->w->res->fast;
     http_redirects_t rd = {0};
     unsigned which = 0;
     core_str_t cur = {(const char *)bufs[0], f->url_len};
-    d->loc = (char *)d->w->rest + 2u * WS_URL_BUF;
+    d->loc = (char *)d->w->rest + WS_LOC_OFF;
     memcpy(bufs[0], f->url, f->url_len);
     for (;;) {
         http_url_t u;
+        core_buf_t rb;
         core_buf_t nb;
-        if (http_url_split(cur, &u) != HTTP_OK) {
+        if (http_url_split(cur, &u) != HTTP_OK || !core_buf_init(&rb, (char *)d->w->body, WS_BODY_CAP) ||
+            http_request_write(&rb, &u, core_str_from_cstr(ANNAS_VERSION)) != HTTP_OK) {
             return dl_fail(d, ANNAS_E_PARSE, 0, "download URL must be an absolute https URL");
         }
         d->follow = false;
-        d->head = (head_t){0, false, false, 0};
-        annas_code_t c = dl_hop(d, &u);
+        d->head = (head_t){.challenge = false, .has_loc = false, .loc_len = 0};
+        annas_code_t c = dl_hop(d, &u, core_buf_str(&rb));
         if (c != ANNAS_OK || !d->follow) {
             return c;
         }
         which ^= 1u;
-        if (!core_buf_init(&nb, (char *)bufs[which], WS_URL_BUF)) {
-            return dl_fail(d, ANNAS_E_HTTP, d->head.status, "invalid redirect location");
-        }
+        (void)core_buf_init(&nb, (char *)bufs[which], WS_URL_BUF); /* a workspace buffer: cannot fail */
         c = dl_resolve(d, &rd, &u, &nb);
         if (c != ANNAS_OK) {
             return c;
@@ -227,14 +228,9 @@ NOINLINE static annas_code_t dl_run(dl_t *d) {
 /* Everything after the API call: names, the transfer, and the hand-over of the result. */
 static annas_code_t dl_finish(annas_ctx_t *ctx, annas_error_t *err, const ws_t *w, const annas_request_t *req,
                               const char *md5, annas_download_result_t *out) {
-    dl_t d = {ctx, err, w, NULL, {0, false, false, 0}, false, 0, {NULL, 0}};
-    annas_code_t c = name_build(ctx, err, req, md5, w->res);
-    if (c != ANNAS_OK) {
-        return c;
-    }
-    d.name.ptr = w->res->name;
-    d.name.len = w->res->name_len;
-    c = dl_run(&d);
+    dl_t d = {.ctx = ctx, .err = err, .w = w, .bytes = 0}; /* loc, head and follow are set per hop by dl_run */
+    name_build(ctx, req, md5, w->res);
+    annas_code_t c = dl_run(&d);
     if (c == ANNAS_OK) {
         w->res->bytes = d.bytes;
         memcpy(out, w->res, sizeof *out);
